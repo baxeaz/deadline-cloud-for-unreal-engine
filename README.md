@@ -4,7 +4,6 @@
 [![python](https://img.shields.io/pypi/pyversions/deadline-cloud-for-unreal-engine.svg?style=flat)](https://pypi.python.org/pypi/deadline-cloud-for-unreal-engine)
 [![license](https://img.shields.io/pypi/l/deadline-cloud-for-unreal-engine.svg?style=flat)](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/LICENSE)
 
-
 [deadline-cloud]: https://docs.aws.amazon.com/deadline-cloud/latest/userguide/what-is-deadline-cloud.html
 [deadline-cloud-client]: https://github.com/aws-deadline/deadline-cloud
 [openjd]: https://github.com/OpenJobDescription/openjd-specifications/wiki
@@ -27,19 +26,24 @@ This package provides a Unreal Engine plugin that creates jobs for AWS Deadline 
 ## Adaptor
 
 The Unreal Engine Adaptor implements the [OpenJD][openjd-adaptor-runtime] interface that allows render workloads to launch Unreal Engien and feed it commands. This gives the following benefits:
-* a standardized render application interface,
-* sticky rendering, where the application stays open between tasks,
+
+- a standardized render application interface,
+- sticky rendering, where the application stays open between tasks,
 
 Jobs created by the submitter use this adaptor by default.
 
 ### Getting Started
 
+See [SETUP_SUBMITTER_CMF](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER_CMF.md) for full instructions on setting up to use the submitter or setting up a customer managed fleet and/or instance to act as a worker node.
+
 The adaptor can be installed by the standard python packaging mechanisms:
+
 ```sh
 $ pip install deadline-cloud-for-unreal-engine
 ```
 
 After installation it can then be used as a command line tool:
+
 ```sh
 $ unreal-engine-openjd --help
 ```
@@ -48,13 +52,13 @@ For more information on the commands the OpenJD adaptor runtime provides, see [h
 
 ## Versioning
 
-This package's version follows [Semantic Versioning 2.0](https://semver.org/), but is still considered to be in its 
+This package's version follows [Semantic Versioning 2.0](https://semver.org/), but is still considered to be in its
 initial development, thus backwards incompatible versions are denoted by minor version bumps. To help illustrate how
 versions will increment during this initial development stage, they are described below:
 
-1. The MAJOR version is currently 0, indicating initial development. 
-2. The MINOR version is currently incremented when backwards incompatible changes are introduced to the public API. 
-3. The PATCH version is currently incremented when bug fixes or backwards compatible changes are introduced to the public API. 
+1. The MAJOR version is currently 0, indicating initial development.
+2. The MINOR version is currently incremented when backwards incompatible changes are introduced to the public API.
+3. The PATCH version is currently incremented when bug fixes or backwards compatible changes are introduced to the public API.
 
 ## Security
 
