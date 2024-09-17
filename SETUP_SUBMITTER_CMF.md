@@ -104,7 +104,7 @@ This example will use the Meerkat Demo from the Unreal Marketplace.
 - For Default Executor Job, select MoviePipelineDeadlineCloudExecutorJob
 - Under Default Job Settings Classes, Click Add New, and add “DeadlineCloudRenderStepSetting”
 - Now search for the settings for “Deadline Cloud” and ensure that your Status says “AUTHENTICATED” and your Deadline Cloud API says “AUTHORIZED”
-  - If it does not, first try using the Login button. If that doesn’t work, go ensure you’re logged in to Deadline Cloud Monitor.
+  - If it does not, first try using the Login button. If that doesn’t work, open your Deadline Cloud Monitor and ensure you're logged in.
 - Under “Deadline Cloud Workstation Configuration”:
   - Under “Global Settings” ensure your AWS Profile is set correctly to your DCM Profile
   - Under “Profile” ensure your Default Farm is set to your farm
