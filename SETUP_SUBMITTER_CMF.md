@@ -22,6 +22,7 @@ The following steps: (“Install Build Tools”, "Environment Setup", "Deadline 
 The Unreal Submitter Plugin currently must be compiled locally.
 
 - Install Visual Studio 2022 or later using the Visual Studio Installer
+  - https://visualstudio.microsoft.com/
   - When installing, under “Workloads” select “Desktop development with C++”
   - Under “Individual Components”, select a recent .NET Framework SDK (4.6.1 and 4.8.1 have been verified)
 
@@ -60,7 +61,7 @@ From the Unreal Install Batchfiles Folder (Note the ‘package’ parameter can 
 
 Additional python libraries are installed by the submitter installer currently.
 
-- Download submitter installer from Deadline Cloud AWS Console’s Downloads Tab
+- Download submitter installer from Deadline Cloud AWS Console’s Downloads Tab or from within the Deadline Cloud Monitor under Workstation Setup -> Downloads
 - Run, install for all users. Default install location is fine.
 - Enable the Unreal Engine Plugin
 - Make sure the Unreal Engine plugin install path matches where your plugin was copied to (In particular make sure your Unreal version matches)
@@ -97,13 +98,13 @@ This example will use the Meerkat Demo from the Unreal Marketplace.
 - Create a Project from the Meerkat Demo
 - Open the Project
 - From the Edit Menu, select Plugins, search for and enable UnrealDeadlineCloudService
-- (You may need to restart)
+- Restart Unreal if you've enbaled the plugin for the first time
 - Under Edit/Project Settings search for the Movie Render Pipeline section
 - For Default Remote Executor, select MoviePipelineDeadlineCloudRemoteExecutor
 - For Default Executor Job, select MoviePipelineDeadlineCloudExecutorJob
 - Under Default Job Settings Classes, Click Add New, and add “DeadlineCloudRenderStepSetting”
 - Now search for the settings for “Deadline Cloud” and ensure that your Status says “AUTHENTICATED” and your Deadline Cloud API says “AUTHORIZED”
-  - If it does not, first try using the Login button. If that doesn’t work, go ensure you’re logged in to Deadline Cloud Monitor and restart Unreal.
+  - If it does not, first try using the Login button. If that doesn’t work, go ensure you’re logged in to Deadline Cloud Monitor.
 - Under “Deadline Cloud Workstation Configuration”:
   - Under “Global Settings” ensure your AWS Profile is set correctly to your DCM Profile
   - Under “Profile” ensure your Default Farm is set to your farm
