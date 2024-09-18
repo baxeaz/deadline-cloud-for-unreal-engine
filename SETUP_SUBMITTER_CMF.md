@@ -7,7 +7,7 @@ This will walk you through setting up your Unreal Submitter with optional additi
 If you’re setting up on a brand new Windows EC2 Instance as your submitter, a g5.2xlarge instance with 200 GB of storage will likely be reasonable minimum:
 
 1. Download the Epic Installer and install the latest version of Unreal (5.2 or higher is required)
-1. NVidia Grid drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
+1. NVIDIA GRID drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
 
 ## Install Build Tools
 
@@ -76,7 +76,7 @@ If you don't yet have a CMF set up, you can complete the instructions below as p
 If you’re setting up on a brand new Windows EC2 Instance as your CMF worker node, a g5.2xlarge instance with 200 GB of storage will likely be reasonable minimum:
 
 1. Download the Epic Installer and install the latest version of Unreal (5.2 or higher is required)
-1. NVidia Grid drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
+1. NVIDIA GRID drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
 
 ## Install Build Tools
 
@@ -147,7 +147,7 @@ This example will use the Meerkat Demo from the Unreal Marketplace:
 1. Create a Project from the Meerkat Demo
 1. Open the Project
 1. From the Edit Menu, select Plugins, search for and enable UnrealDeadlineCloudService
-1. Restart Unreal if you've enbaled the plugin for the first time
+1. Restart Unreal if you've enabled the plugin for the first time
 1. Under Edit/Project Settings search for the Movie Render Pipeline section
 1. For Default Remote Executor, select MoviePipelineDeadlineCloudRemoteExecutor
 1. For Default Executor Job, select MoviePipelineDeadlineCloudExecutorJob
