@@ -41,6 +41,34 @@
         <actionList>
             <setInstallerVariable name="all_components" value="${all_components} deadline_cloud_for_unreal_engine"/>
             <setInstallerVariable name="unreal_deps_platform" value="windows"/>
+            <setInstallerVariable name="unreal_install_path" value="C:\Program Files\Epic Games\UE_5.4"/>
+            <registryFind>
+                <keyPattern>*5.*</keyPattern>
+                <namePattern>InstalledDirectory</namePattern>
+                <findAll>1</findAll>
+                <rootKey>HKEY_LOCAL_MACHINE\SOFTWARE\EpicGames\Unreal Engine</rootKey>
+                <searchDepth>1</searchDepth>
+                <variable>unreal_registry_list</variable>
+            </registryFind>
+            <foreach>
+                <variables>key name value</variables>
+                <values>${unreal_registry_list}</values>
+                <actionList>
+                    <actionGroup>
+                        <actionList>
+                            <setInstallerVariable>
+                                <name>unreal_install_path</name>
+                                <value>${value}</value>
+                            </setInstallerVariable>
+                        </actionList>
+                        <ruleList>
+                            <fileExists>
+                                <path>${value}</path>
+                            </fileExists>
+                        </ruleList>
+                    </actionGroup>
+                </actionList>
+            </foreach>
         </actionList>
         <elseActionList>
             <setInstallerVariable name="component(deadline_cloud_for_unreal_engine).show" value="0"/>
@@ -49,23 +77,36 @@
 	</initializationActionList>
 	<parameterList>
 		<stringParameter name="deadline_cloud_for_unreal_engine_summary" ask="0" cliOptionShow="0">
-			<value>Deadline Cloud for Unreal Engine 5.2.1
-- Compatible with Unreal Engine 5
+			<value>Deadline Cloud for Unreal Engine 5.2+
+- Compatible with Unreal Engine 5.2 and later
 - Install the Unreal Engine submitter files to the Plugin directory
 </value>
 		</stringParameter>
+        <directoryParameter>
+            <name>unreal_plugin_root</name>
+            <description>Unreal Plugins folder</description>
+            <explanation>Path to the Unreal Plugins folder to install in</explanation>
+            <value></value>
+            <default>${unreal_install_path}\Engine\Plugins</default>
+            <allowEmptyValue>0</allowEmptyValue>
+            <ask>yes</ask>
+            <cliOptionName>unreal-plugins-folder</cliOptionName>
+            <cliOptionText>Path to the Unreal Plugins directory</cliOptionText>
+            <mustBeWritable>yes</mustBeWritable>
+            <mustExist>1</mustExist>
+        </directoryParameter>
         <directoryParameter>
             <name>unreal_plugin_dir</name>
             <description>Deadline Cloud Unreal Plugin directory</description>
             <explanation>Path to the Deadline Cloud Unreal Plugin directory</explanation>
             <value></value>
-            <default>C:\Program Files\Epic Games\UE_5.2\Engine\Plugins\UnrealDeadlineCloudService</default>
+            <default>${unreal_plugin_root}\UnrealDeadlineCloudService</default>
             <allowEmptyValue>0</allowEmptyValue>
-            <ask>yes</ask>
+            <ask>no</ask>
             <cliOptionName>unreal-plugin-directory</cliOptionName>
             <cliOptionText>Path to the Deadline Cloud Unreal Plugin directory</cliOptionText>
             <mustBeWritable>yes</mustBeWritable>
-            <mustExist>1</mustExist>
+            <mustExist>0</mustExist>
         </directoryParameter>
 	</parameterList>
     <postInstallationActionList>
