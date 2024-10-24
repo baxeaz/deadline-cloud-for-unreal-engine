@@ -49,7 +49,7 @@ def build_plugin(
     output_folder: str = None,
     upload_bucket: str = None,
 ):
-    print(f"Building plugin...")
+    print("Building plugin...")
     # Create a TemporaryDirectory to build into if no output_folder given
     output_folder = output_folder or tempfile.TemporaryDirectory().name
 
