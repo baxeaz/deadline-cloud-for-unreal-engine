@@ -5,8 +5,9 @@
 #include "CoreMinimal.h"
 #include "Editor/UnrealEd/Public/TickableEditorObject.h"
 #include "PythonAPILibraries/PythonAPILibrary.h"
-#include "PythonGameThreadExecutor.generated.h"
 #include "UObject/Object.h"
+
+#include "PythonGameThreadExecutor.generated.h"
 
 /**
  * Python Game thread executor. Intended to execute python code in main thread
