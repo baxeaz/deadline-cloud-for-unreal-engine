@@ -14,8 +14,8 @@
 	"IsExperimentalVersion": true,
 	"Installed": false,
 	"EnabledByDefault": true,
-	"Plugins":
-	[
+	"Type": "Editor",
+	"Plugins": [
 		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true
@@ -32,7 +32,8 @@
 	"Modules": [
 		{
 			"Name": "UnrealDeadlineCloudService",
-			"Type" : "UncookedOnly"
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	]
 }
