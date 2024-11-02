@@ -73,7 +73,9 @@ def build_plugin(
             "BuildPlugin",
             f"-Plugin={plugin_input_folder}",
             f"-package={output_folder}",
-            "-TargetPlatform=Win64",
+            "-TargetPlatforms=Win64",
+            "-CrossCompile",
+            "-VS2019"
         ],
         check=True,
     )
