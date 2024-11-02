@@ -66,9 +66,7 @@ def build_plugin(
         os.getcwd(), "src", "unreal_plugin", "UnrealDeadlineCloudService.uplugin"
     )
 
-    # Build the plugin
-    result = subprocess.run(
-        [
+    run_cmd =         [
             runuat_path,
             "BuildPlugin",
             f"-Plugin={plugin_input_folder}",
@@ -76,9 +74,10 @@ def build_plugin(
             "-TargetPlatforms=Win64",
             "-CrossCompile",
             "-VS2019"
-        ],
-        check=True,
-    )
+        ]
+    print(f"Running cmd: {run_cmd}")
+    # Build the plugin
+    result = subprocess.run(run_cmd, check=True)
     print(f"Build result: {result.returncode}")
 
     # Prepare to create an archive.  First create the archive/plugin folder if it doesn't exist
