@@ -27,7 +27,7 @@ sys.modules["unreal"] = unreal_mock
 from deadline.unreal_submitter.unreal_open_job.unreal_open_job import (  # noqa: E402
     UnrealOpenJob,
     RenderUnrealOpenJob,
-    UnrealOpenJobUgsEnvironment,
+    UgsUnrealOpenJobEnvironment,
     UnrealOpenJobParameterDefinition,
     TransferProjectFilesStrategy,
 )
@@ -398,7 +398,7 @@ class TestRenderUnrealOpenJob:
     @pytest.mark.parametrize(
         "environment, strategy",
         [
-            (UnrealOpenJobUgsEnvironment(""), TransferProjectFilesStrategy.UGS),
+            (UgsUnrealOpenJobEnvironment(""), TransferProjectFilesStrategy.UGS),
             (None, TransferProjectFilesStrategy.S3),
         ],
     )

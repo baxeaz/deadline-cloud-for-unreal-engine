@@ -41,3 +41,7 @@ class PathContainsNonValidCharacters(DeadlineCloudSubmitterException):
     """Raised when the path contains not allowed characters"""
 
     pass
+
+
+class FailedToDetectFilesTransferStrategy(DeadlineCloudSubmitterException):
+    """Raised when its failed to detect which strategy to use for transfer files to render"""

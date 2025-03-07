@@ -503,7 +503,9 @@ class RenderUnrealOpenJobStep(UnrealOpenJobStep):
         Build StepTemplate OpenJD model.
 
         Build process:
-            1. Forcibly update Step parameters listed in OpenJobStepParameterNames
+            1. Forcibly update Step parameters listed in OpenJobStepParameterNames.
+               If QueueManifestPath parameter exists, set up QueueManifestPath parameter definition
+               and add it to Step Asset References.
             2. Fill Step parameter definition list
             3. Fill Host Requirements if provided
             4. Build given Environments
@@ -625,3 +627,9 @@ class UgsRenderUnrealOpenJobStep(RenderUnrealOpenJobStep):
     """Class for predefined UGS Step"""
 
     default_template_path = settings.UGS_RENDER_STEP_TEMPLATE_DEFAULT_PATH
+
+
+# Perforce (non UGS) Steps
+class P4RenderUnrealOpenJobStep(RenderUnrealOpenJobStep):
+
+    default_template_path = settings.P4_RENDER_STEP_TEMPLATE_DEFAULT_PATH

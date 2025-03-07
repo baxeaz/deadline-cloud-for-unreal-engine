@@ -24,19 +24,29 @@ from deadline.unreal_adaptor.UnrealClient.step_handlers import get_step_handler_
 
 logger = get_logger()
 
+# Global variables for keeping UnrealClient running and preventing deletion by the Unreal garbage collector
+MESSAGE_POLL_INTERVAL = float(os.getenv("MESSAGE_POLL_INTERVAL", 1.0))
+unreal_client = None
+client_handler = None
+
 
 class UnrealClient(WinClientInterface):
     """
     Socket DCC client implementation for UnrealEngine that send requests for actions and execute them.
     """
 
-    def __init__(self, socket_path: str) -> None:
+    def __init__(
+        self, socket_path: str, message_poll_interval: float = MESSAGE_POLL_INTERVAL
+    ) -> None:
         super().__init__(socket_path)
         self.handler: BaseStepHandler
         self.actions.update({"set_handler": self.set_handler, "client_loaded": self.client_loaded})
+        self.message_poll_interval = message_poll_interval
+        self.time_elapsed = 0.0
 
     def client_loaded(self, *args, **kwargs) -> None:
         """Log the message that UnrealClient loaded"""
+
         logger.info(f"{self.__class__.__name__} loaded")
 
     def set_handler(self, handler_dict: dict) -> None:
@@ -53,6 +63,12 @@ class UnrealClient(WinClientInterface):
         import unreal
 
         logger.info("Quit the Editor: normal shutdown")
+
+        global client_handler
+
+        if client_handler:
+            unreal.unregister_slate_post_tick_callback(client_handler)
+
         unreal.SystemLibrary.quit_editor()
 
     def graceful_shutdown(self, *args, **kwargs) -> None:
@@ -60,6 +76,12 @@ class UnrealClient(WinClientInterface):
         import unreal
 
         logger.info("Quit the Editor: graceful shutdown")
+
+        global client_handler
+
+        if client_handler:
+            unreal.unregister_slate_post_tick_callback(client_handler)
+
         unreal.SystemLibrary.quit_editor()
 
     def poll(self) -> None:
@@ -68,6 +90,7 @@ class UnrealClient(WinClientInterface):
         (no actions in the queue), a backoff function will be called to add a delay between the
         requests.
         """
+
         status, reason, action = self._request_next_action()
         if status == HTTPStatus.OK:
             if action is not None:
@@ -83,6 +106,19 @@ class UnrealClient(WinClientInterface):
                 file=sys.stderr,
                 flush=True,
             )
+
+    def poll_by_slate_tick(self, delta_time: float) -> None:
+        """
+        Helper function for polling the server for the next task. Called on each Slate tick.
+
+        :param delta_time: Time increment after previous tick in Unreal Slate
+        :type delta_time: float
+        """
+
+        self.time_elapsed += delta_time
+        if self.time_elapsed >= self.message_poll_interval:
+            self.time_elapsed = 0
+            self.poll()
 
 
 def main():
@@ -103,25 +139,11 @@ def main():
             f"{os.environ['UNREAL_ADAPTOR_SOCKET_PATH']}"
         )
 
-    @unreal.uclass()
-    class OnTickThreadExecutorImplementation(unreal.PythonGameThreadExecutor):
-        """
-        Python implementation of the OnTickThreadExecutor class that runs the
-        :meth:`deadline.unreal_adaptor.UnrealClient.unreal_client.UnrealClient.poll()`
-        """
+    global unreal_client
+    global client_handler
 
-        client = UnrealClient(socket_path)
-        time_elapsed = unreal.uproperty(float)
-
-        def _post_init(self):
-            self.time_elapsed = 0
-
-        @unreal.ufunction(override=True)
-        def execute(self, delta_time: float):
-            self.time_elapsed += delta_time
-            if self.time_elapsed >= 1:
-                self.time_elapsed = 0
-                self.client.poll()
+    unreal_client = UnrealClient(socket_path)
+    client_handler = unreal.register_slate_post_tick_callback(unreal_client.poll_by_slate_tick)
 
 
 if __name__ == "__main__":  # pragma: no cover

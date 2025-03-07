@@ -345,11 +345,12 @@ class UnrealAdaptor(Adaptor[AdaptorConfiguration]):
             "-log",
             "-unattended",
             "-stdout",
-            "-NoLoadingScreen",
-            "-NoScreenMessages",
-            "-RenderOffscreen",
             "-allowstdoutlogverbosity",
         ]
+
+        remote_execution = os.getenv("REMOTE_EXECUTION", "True")
+        if remote_execution == "True":
+            log_args += ["-NoLoadingScreen", "-NoScreenMessages", "-RenderOffscreen"]
 
         extra_cmd_args = extra_cmd_str.split(" ")
 
@@ -366,6 +367,14 @@ class UnrealAdaptor(Adaptor[AdaptorConfiguration]):
             execcmds_value = f"-execcmds=r.HLOD 0,py {client_path}"
 
         args.append(execcmds_value)
+
+        # Add Mrq Job Dependencies Descriptor argument if exists
+        if "job_dependencies_descriptor" in self.init_data:
+            args.append(
+                "-MrqJobDependenciesDescriptor={}".format(
+                    self.init_data["job_dependencies_descriptor"]
+                )
+            )
 
         logger.info(f"Starting Unreal Engine with args: {args}")
 
@@ -489,20 +498,20 @@ class UnrealAdaptor(Adaptor[AdaptorConfiguration]):
                 logger.info("Enqueue wait result")
                 self._action_queue.enqueue_action(Action("wait_result", {}))
 
-        if (
-            not self._unreal_is_running and self._unreal_client
-        ):  # Unreal Client will always exist here.
-            #  This is always an error case because the Unreal Client should still be running and
-            #  waiting for the next command. If the thread finished, then we cannot continue
+        # The Unreal subprocess always exists at this point but can be terminated by a user script
+        # or other means. For example unreal.SystemLibrary.quit_editor().
+        # Before treating it as an error, we should check the return code.
+        if not self._unreal_is_running and self._unreal_client:
             exit_code = self._unreal_client.returncode
-            self._record_error_and_raise(
-                exc=RuntimeError(
-                    "Unreal exited early and did not render successfully, please check render logs. "
-                    f"Exit code {exit_code}"
-                ),
-                exception_scope="on_run",
-                exit_code=exit_code,
-            )
+            if exit_code != 0:
+                self._record_error_and_raise(
+                    exc=RuntimeError(
+                        "Unreal exited early and did not render successfully, please check render logs. "
+                        f"Exit code {exit_code}"
+                    ),
+                    exception_scope="on_run",
+                    exit_code=exit_code,
+                )
 
     def on_stop(self) -> None:
         """

@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import unreal
-from typing import Optional
+from typing import Optional, Union
 from openjd.model.v2023_09 import Environment, EnvironmentScript
 
 from deadline.unreal_submitter import settings
@@ -48,8 +48,8 @@ class UnrealOpenJobEnvironment(UnrealOpenJobEntity):
         return self._variables
 
     @variables.setter
-    def variables(self, value: dict[str, str]):
-        self._variables = value
+    def variables(self, value: Union[dict[str, str], unreal.Map]):
+        self._variables = dict(value)
 
     @classmethod
     def from_data_asset(cls, data_asset: unreal.DeadlineCloudEnvironment):
@@ -64,7 +64,7 @@ class UnrealOpenJobEnvironment(UnrealOpenJobEntity):
         return cls(
             file_path=data_asset.path_to_template.file_path,
             name=data_asset.name,
-            variables=data_asset.variables.variables,
+            variables=dict(data_asset.variables.variables),
         )
 
     def _create_missing_variables_from_template(self):
@@ -118,25 +118,42 @@ class LaunchEditorUnrealOpenJobEnvironment(UnrealOpenJobEnvironment):
 
 
 # UGS Environments
-class UnrealOpenJobUgsEnvironment(UnrealOpenJobEnvironment):
+class UgsUnrealOpenJobEnvironment(UnrealOpenJobEnvironment):
     """Parent class for predefined UGS Environment"""
 
     pass
 
 
-class UgsLaunchEditorUnrealOpenJobEnvironment(UnrealOpenJobUgsEnvironment):
+class UgsLaunchEditorUnrealOpenJobEnvironment(UgsUnrealOpenJobEnvironment):
     """Predefined Environment for launching the Unreal Editor in UGS case"""
 
     default_template_path = settings.UGS_LAUNCH_ENVIRONMENT_TEMPLATE_DEFAULT_PATH
 
 
-class UgsSyncCmfUnrealOpenJobEnvironment(UnrealOpenJobUgsEnvironment):
+class UgsSyncCmfUnrealOpenJobEnvironment(UgsUnrealOpenJobEnvironment):
     """Predefined Environment for syncing the Unreal project via UGS on CMF farm"""
 
     default_template_path = settings.UGS_SYNC_CMF_ENVIRONMENT_TEMPLATE_DEFAULT_PATH
 
 
-class UgsSyncSmfUnrealOpenJobEnvironment(UnrealOpenJobUgsEnvironment):
+class UgsSyncSmfUnrealOpenJobEnvironment(UgsUnrealOpenJobEnvironment):
     """Predefined Environment for syncing the Unreal project via UGS on SMF farm"""
 
     default_template_path = settings.UGS_SYNC_SMF_ENVIRONMENT_TEMPLATE_DEFAULT_PATH
+
+
+# Perforce (non UGS) Environments
+class P4UnrealOpenJobEnvironment(UnrealOpenJobEnvironment):
+    pass
+
+
+class P4LaunchEditorUnrealOpenJobEnvironment(P4UnrealOpenJobEnvironment):
+    default_template_path = settings.P4_LAUNCH_ENVIRONMENT_TEMPLATE_DEFAULT_PATH
+
+
+class P4SyncCmfUnrealOpenJobEnvironment(P4UnrealOpenJobEnvironment):
+    default_template_path = settings.P4_SYNC_CMF_ENVIRONMENT_TEMPLATE_DEFAULT_PATH
+
+
+class P4SyncSmfUnrealOpenJobEnvironment(P4UnrealOpenJobEnvironment):
+    default_template_path = settings.P4_SYNC_SMF_ENVIRONMENT_TEMPLATE_DEFAULT_PATH
