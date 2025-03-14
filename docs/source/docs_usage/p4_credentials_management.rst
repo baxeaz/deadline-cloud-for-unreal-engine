@@ -140,7 +140,8 @@ Pass Connection Credentials within the Job Environment
 You can pass connection credentials within the Job Environment where the workspace creation
 happens, for example in P4SyncCmf (``src/unreal_plugin/Content/Python/openjd_templates/p4/p4_sync_cmf_environment.yml``),
 UGSSyncCmf (``src/unreal_plugin/Content/Python/openjd_templates/ugs/ugs_sync_cmf_environment.yml``), same for SMF case.
-Or create the new Environment template and prepend it to your Job.
+Or create the new Environment template and prepend it to your Job.  NOTE - if you create the below sample as a new Queue
+Environment you'll want to give it a unique name if your job also uses the p4_sync_cmf_environment.yml.
 
 .. code-block:: yaml
 
