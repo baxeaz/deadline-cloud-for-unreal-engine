@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from deadline.unreal_logger import get_logger
-from deadline.unreal_perforce_utils import perforce, exceptions
+from deadline.unreal_perforce_utils import perforce, exceptions, secret_manager
 
 logger = get_logger()
 
@@ -386,3 +386,40 @@ def delete_workspace(workspace_name: Optional[str] = None, project_name: Optiona
 
     if last_exception and isinstance(last_exception, Exception):
         raise last_exception
+
+
+def apply_perforce_secrets() -> None:
+    """
+    Apply secrets from Boto3 SecretsManager to Perforce environment variables. Try to find secret
+    by name stored in AWS_SECRET_P4INFO and apply all key/value pairs from it as environment variables.
+
+    The following environment variables can be set:
+
+    - P4USER
+    - P4PASSWD
+    - P4PORT
+
+    .. warning::
+       Be aware that by default environment variables are persisted by printing to stdout
+       (See the openjd_env: line at the end of this method). Consider adding a CloudWatch data
+       protection policy to prevent potentially sensitive information from being echoed to your logs.
+       (See Custom data identifiers - https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL-custom-data-identifiers.html)
+
+    """
+
+    logger.warning(
+        "Be aware that by default environment variables are persisted by printing to stdout."
+        "Consider adding a CloudWatch data protection policy to prevent potentially sensitive "
+        "information from being echoed to your logs. (See Custom data identifiers - "
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL-custom-data-identifiers.html)"
+    )
+    logger.info("Applying perforce secrets from Boto3 SecretsManager ...")
+
+    p4_info = secret_manager.get_perforce_info()
+    if not p4_info:
+        logger.info("No perforce secrets found in Boto3 SecretsManager. Skip applying")
+        return
+
+    for env_name, env_value in p4_info.items():
+        # For some reason, adaptor doesn't show logger records, need to R&D
+        print(f"openjd_env: {env_name}={env_value}")
