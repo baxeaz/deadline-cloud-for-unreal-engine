@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-# import time
+from botocore.client import BaseClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
@@ -111,3 +111,46 @@ def create_readonly_test_project():
     add_plugins_to_project(project_path, ["UnrealDeadlineCloudService", "MovieRenderPipeline"])
 
     yield dest_path, project_path
+
+@pytest.fixture(scope="session")
+def session() -> boto3.Session:
+    return boto3.Session()
+
+@pytest.fixture(scope="session")
+def deadline_client(
+    session: boto3.Session
+) -> botocore.client.BaseClient:
+    client = session.client("deadline")
+    return client
+
+@pytest.fixture(scope="session")
+def reusable_queue_fleet_association(
+    deadline_client: BaseClient,
+    reusable_farm_id: str,
+    reusable_queue_id: str,
+    reusable_fleet_id: str,
+) -> Generator[Tuple[str, str, str], None, None]:
+    deadline_client.create_queue_fleet_association(
+        farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id
+    )
+
+    yield reusable_farm_id, reusable_queue_id, reusable_fleet_id
+
+    try:
+        stop_queue_fleet_associations_and_wait(
+            bealine_client=bealine_client,
+            farm_id=reusable_farm_id,
+            queue_id=reusable_queue_id,
+            fleet_id=reusable_customer_managed_fleet_id,
+        )
+
+        delete_queue_fleet_associations_with_failure_cleanup(
+            control_plane_dynamodb_client=control_plane_dynamodb_client,
+            bealine_client=bealine_client,
+            farm_id=reusable_farm_id,
+            queue_id=reusable_queue_id,
+            fleet_id=reusable_customer_managed_fleet_id,
+        )
+    except Exception as e:
+        print(f"Delete reusable_queue_fleet_association exception {str(e)}")
+        pass
