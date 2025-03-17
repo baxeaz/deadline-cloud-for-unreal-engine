@@ -123,6 +123,120 @@ def deadline_client(
     client = session.client("deadline")
     return client
 
+def create_fleet_util(
+    deadline_client: BaseClient,
+    worker_role_arn: str,
+    wait_for_active: bool = True,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Helper method to create one Fleet.
+
+    Args:
+        deadline_client (BaseClient): The client used to call BeaLine API
+        wait_for_active (bool, optional): Whether to return the result until Fleet is in ACTIVE status
+    """
+    if "minWorkerCount" not in kwargs:
+        kwargs["minWorkerCount"] = 0
+
+    if "maxWorkerCount" not in kwargs:
+        kwargs["maxWorkerCount"] = 5
+
+    if "roleArn" not in kwargs:
+        kwargs["roleArn"] = worker_role_arn
+
+    if "configuration" not in kwargs:
+        kwargs["configuration"] = DEFAULT_MIN_CMF_CONFIGURATION
+
+    response = deadline_client.create_fleet(**kwargs)
+
+    if wait_for_active:
+        waiter = deadline_client.get_waiter("fleet_active")
+        waiter.wait(farmId=kwargs["farmId"], fleetId=response["fleetId"])
+
+    response = deadline_client.get_fleet(farmId=kwargs["farmId"], fleetId=response["fleetId"])
+    return response
+
+@pytest.fixture(scope="session")
+def reusable_fleet_id(
+    worker_id: str,
+    deadline_client: BaseClient,
+    reusable_farm_id: str,
+    worker_role_arn: str,
+) -> Generator[str, None, None]:
+    response = create_fleet_util(
+        deadline_client,
+        worker_role_arn,
+        displayName="test-reusable-customer-managed-fleet",
+        farmId=reusable_farm_id,
+        configuration=DEFAULT_MIN_CMF_CONFIGURATION,
+        maxWorkerCount=100,
+    )
+    # Wait for the fleet to be synchronized into Scheduler.
+    time.sleep(SECONDS_TO_WAIT_FOR_CP_DP_SYNC)
+
+    yield response["fleetId"]
+
+    delete_fleets_util(control_plane_dynamodb_client, deadline_client, [response])
+
+
+@pytest.fixture(scope="session")
+def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str) -> Generator[Any, None, None]:
+    queues: List[Tuple[str, str]] = []
+
+    def create_queue_func(
+        farm_id: str, queue_role_arn: Optional[str] = queue_role_arn, job_run_as_user: Optional[dict] = None
+    ) -> Dict[str, Any]:
+
+        response = deadline_client.create_queue(
+            farmId=farm_id,
+            displayName="test-queue",
+            jobRunAsUser=job_run_as_user or {"posix": {"user": "", "group": ""}, "runAs": "WORKER_AGENT_USER"},
+        )
+        queues.append((farm_id, response["queueId"]))
+        return response
+
+    yield create_queue_func
+
+    for queue in queues:
+        farm_id, queue_id = queue
+        try:
+            deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
+            delete_farm_resource_log_group_util(farm_id=farm_id, resource_id=queue_id)
+        except Exception as e:
+            print(f"Exception occurred while deleting Queue {farm_id} {queue_id}: {str(e)}")
+            pass
+
+@pytest.fixture(scope="session")
+def reusable_queue_id(
+    create_queue_helper: Callable, reusable_farm_id: str
+) -> str:
+    return create_queue_helper(farm_id=reusable_farm_id)["queueId"]
+ 
+
+# Stop Queue Fleet Association. Attempts to transition from ACTIVE to Stopped with Cancel Work.
+def stop_queue_fleet_associations_and_wait(
+    deadline_client: BaseClient, farm_id: str, queue_id: str, fleet_id: str
+) -> None:
+    # temporary catch-except to skip orphaned QFA resources that will always fail this operation
+    try:
+        # Cleanup the Queue Fleet Association by first waiting for jobs to complete.
+        deadline_client.update_queue_fleet_association(
+            farmId=farm_id,
+            queueId=queue_id,
+            fleetId=fleet_id,
+            status=ResourceState.STATE_STOP_SCHEDULING_AND_CANCEL_TASKS,
+        )
+        waiter = deadline_client.get_waiter("queue_fleet_association_stopped")
+        waiter.wait(farmId=farm_id, queueId=queue_id, fleetId=fleet_id)
+
+        response = deadline_client.get_queue_fleet_association(farmId=farm_id, queueId=queue_id, fleetId=fleet_id)
+        final_status = response[QueueFleetAssociationKeys.STATUS]
+        logging.info(
+            f"Stopping Queue Fleet Association farm {farm_id} fleet {fleet_id} queue {queue_id} final status {final_status}"
+        )
+    except:
+        pass
+
 @pytest.fixture(scope="session")
 def reusable_queue_fleet_association(
     deadline_client: BaseClient,
