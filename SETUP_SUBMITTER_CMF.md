@@ -10,7 +10,7 @@ These instructions are updated along with the corresponding code and scripts fai
 
 If you’re setting up on a brand new Windows EC2 Instance as your submitter, a g5.2xlarge instance with 200 GB of storage will likely be reasonable minimum:
 
-1. Download the Epic Installer and install a version of Unreal between versions 5.2 and 5.4. With 5.5 a bug has been observed that may prevent headless rendering on Deadline Cloud - we recommend using version 5.4.x at latest currently.
+1. Download the Epic Installer and install a version of Unreal between versions 5.2 and 5.5.  Note that on version 5.5 with DirectX 11 there's a crash bug which can affect projects which has been fixed in Unreal's source and can be tracked [here](https://github.com/EpicGames/UnrealEngine/commit/e1b60c8c77dd568e51f8c61011a54a54e0c04e84).  Projects in Deadline Cloud should use DirectX 12 with UE 5.5.
 1. NVIDIA GRID drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
 
 ## Windows Long Paths
@@ -41,7 +41,7 @@ Deadline Cloud Monitor is used to both manage your credentials for submitting jo
 
 - The path to your Python Installation (C:\Program Files\Python312 for example)
 - The path to your Python Scripts folder (C:\Program Files\Python312\scripts for example)
-- The path to your Unreal binaries (C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\Win64)
+- The path to your Unreal binaries (C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\Win64)
 
 ## Deadline Software Installation
 
@@ -76,11 +76,11 @@ Adjust the first two paths below based on where your installation of Unreal live
 From the Unreal Install Batchfiles Folder (Note the ‘package’ parameter can be any new directory, however you’ll want it to be called “UnrealDeadlineCloudService” later):
 
 ```
-cd C:\Program Files\Epic Games\UE_5.4\Engine\Build\BatchFiles
+cd C:\Program Files\Epic Games\UE_5.5\Engine\Build\BatchFiles
 runuat.bat BuildPlugin -plugin="C:\deadline\deadline-cloud-for-unreal-engine\src\unreal_plugin\UnrealDeadlineCloudService.uplugin" -package="C:\UnrealDeadlineCloudService"
 ```
 
-- Copy the “package” folder above to your Unreal installation’s Plugins folder (C:\Program Files\Epic Games\UE_5.4\Engine\Plugins\UnrealDeadlineCloudService for example)
+- Copy the “package” folder above to your Unreal installation’s Plugins folder (C:\Program Files\Epic Games\UE_5.5\Engine\Plugins\UnrealDeadlineCloudService for example)
 
 ## Python Dependencies
 
@@ -89,10 +89,10 @@ There are 4 ways to install the required Python dependencies.
 1. If you've built and installed the plugin from the release branch above, you can simply install from pip. Use the following install command, adjusting the paths to your Unreal installation:
 
 ```
-"C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install deadline-cloud-for-unreal-engine --target "C:\Program Files\Epic Games\UE_5.4\Engine\Plugins\UnrealDeadlineCloudService\Content\Python\libraries"
+"C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install deadline-cloud-for-unreal-engine --target "C:\Program Files\Epic Games\UE_5.5\Engine\Plugins\UnrealDeadlineCloudService\Content\Python\libraries"
 ```
 
-2.  Alternatively in your .uplugin file (In the above steps this would live at C:\Program Files\Epic Games\UE_5.4\Engine\Plugins\UnrealDeadlineCloudService\UnrealDeadlineCloudService.uplugin) you can add a "PythonRequirements" section which matches the latest release of deadline-cloud-for-unreal-engine in GitHub/PyPi, for example:
+2.  Alternatively in your .uplugin file (In the above steps this would live at C:\Program Files\Epic Games\UE_5.5\Engine\Plugins\UnrealDeadlineCloudService\UnrealDeadlineCloudService.uplugin) you can add a "PythonRequirements" section which matches the latest release of deadline-cloud-for-unreal-engine in GitHub/PyPi, for example:
 
 ```
 	"PythonRequirements":
@@ -116,7 +116,7 @@ Note that you may wish to disable the "strict hash" feature in Unreal's Python s
 // Install hatch if not yet installed
 pip install hatch
 hatch build
-"C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install dist\deadline_cloud_for_unreal_engine-0.2.2.post21-py3-none-any.whl --target "C:\Program Files\Epic Games\UE_5.4\Engine\Plugins\UnrealDeadlineCloudService\Content\Python\libraries"
+"C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install dist\deadline_cloud_for_unreal_engine-0.2.2.post21-py3-none-any.whl --target "C:\Program Files\Epic Games\UE_5.5\Engine\Plugins\UnrealDeadlineCloudService\Content\Python\libraries"
 ```
 
 4.  Lastly, Python dependencies can be installed by the submitter installer.  NOTE - these may be out of date with your code above from the release or mainline branch, and this method should not currently be preferred.
@@ -159,7 +159,7 @@ The Unreal Plugin currently must be compiled locally.
 
 - The path to your Python Installation (C:\Program Files\Python312 for example)
 - The path to your Python Scripts folder (C:\Program Files\Python312\scripts for example)
-- The path to your Unreal binaries (C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\Win64)
+- The path to your Unreal binaries (C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\Win64)
 
 ## Deadline Software Installation
 
@@ -225,18 +225,18 @@ Adjust the first two paths below based on where your installation of Unreal live
 From the Unreal Install Batchfiles Folder (Note the ‘package’ parameter can be any new directory, however you’ll want it to be called “UnrealDeadlineCloudService” later):
 
 ```
-cd C:\Program Files\Epic Games\UE_5.4\Engine\Build\BatchFiles
+cd C:\Program Files\Epic Games\UE_5.5\Engine\Build\BatchFiles
 runuat.bat BuildPlugin -plugin="C:\deadline\deadline-cloud-for-unreal-engine\src\unreal_plugin\UnrealDeadlineCloudService.uplugin" -package="C:\UnrealDeadlineCloudService"
 ```
 
-- Copy the “package” folder above to your Unreal installation’s Plugins folder (C:\Program Files\Epic Games\UE_5.4\Engine\Plugins\UnrealDeadlineCloudService for example)
+- Copy the “package” folder above to your Unreal installation’s Plugins folder (C:\Program Files\Epic Games\UE_5.5\Engine\Plugins\UnrealDeadlineCloudService for example)
 
 ## pywin32
 
 Unreal’s version of python will need pywin32. Pip install using copy of Unreal’s 3rd Party python installation:
 
 ```
-"C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install pywin32
+"C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install pywin32
 ```
 
 ## Submit a Test Render (Optional)
