@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Type, Union, Literal, Optional
 
+from openjd.model import parse_model
+
 from openjd.model.v2023_09 import (
     JobTemplate,
     StepTemplate,
@@ -145,7 +147,7 @@ class UnrealOpenJobEntity(UnrealOpenJobEntityBase):
         :rtype: Template
         """
         template_object = self.get_template_object()
-        return self.template_class(**template_object)
+        return parse_model(model=self.template_class, obj=template_object)
 
     def _validate_parameters(self) -> bool:
         """

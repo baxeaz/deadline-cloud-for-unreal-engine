@@ -7,6 +7,7 @@ from enum import IntEnum
 from typing import Optional, Any
 from dataclasses import dataclass, field, asdict
 
+from openjd.model import parse_model
 from openjd.model.v2023_09 import (
     StepScript,
     StepTemplate,
@@ -15,6 +16,7 @@ from openjd.model.v2023_09 import (
     TaskParameterList,
     StepParameterSpaceDefinition,
 )
+
 
 from openjd.model.v2023_09._model import StepDependency
 
@@ -287,7 +289,9 @@ class UnrealOpenJobStep(UnrealOpenJobEntity):
             ]
             param_definition_cls = param_descriptor.task_parameter_openjd_class
 
-            step_parameter_definition_list.append(param_definition_cls(**yaml_p))
+            step_parameter_definition_list.append(
+                parse_model(model=param_definition_cls, obj=yaml_p)
+            )
 
         return step_parameter_definition_list
 
@@ -305,33 +309,32 @@ class UnrealOpenJobStep(UnrealOpenJobEntity):
         :rtype: StepTemplate
         """
         step_template_object = self.get_template_object()
-
         step_parameters = self._build_step_parameter_definition_list()
 
-        return self.template_class(
-            name=self.name,
-            script=StepScript(**step_template_object["script"]),
-            parameterSpace=(
-                StepParameterSpaceDefinition(
-                    taskParameterDefinitions=step_parameters,
-                    combination=step_template_object["parameterSpace"].get("combination"),
-                )
-                if step_parameters
-                else None
-            ),
-            stepEnvironments=(
-                [env.build_template() for env in self._environments] if self._environments else None
-            ),
-            dependencies=(
-                [
-                    StepDependency(dependsOn=step_dependency)
-                    for step_dependency in self._step_dependencies
-                ]
-                if self._step_dependencies
-                else None
-            ),
-            hostRequirements=self.host_requirements,
-        )
+        template_dict = {
+            "name": self.name,
+            "script": parse_model(model=StepScript, obj=step_template_object["script"]),
+        }
+
+        if step_parameters:
+            template_dict["parameterSpace"] = StepParameterSpaceDefinition(
+                taskParameterDefinitions=step_parameters,
+                combination=step_template_object["parameterSpace"].get("combination"),
+            )
+
+        if self._environments:
+            template_dict["stepEnvironments"] = [env.build_template() for env in self._environments]
+
+        if self._step_dependencies:
+            template_dict["dependencies"] = [
+                StepDependency(dependsOn=step_dependency)
+                for step_dependency in self._step_dependencies
+            ]
+
+        if self.host_requirements:
+            template_dict["hostRequirements"] = self.host_requirements
+
+        return parse_model(model=self.template_class, obj=template_dict)
 
     def get_asset_references(self):
         """

@@ -2,7 +2,11 @@
 
 import unreal
 from typing import Optional, Union
-from openjd.model.v2023_09 import Environment, EnvironmentScript
+from openjd.model import parse_model
+from openjd.model.v2023_09 import (
+    Environment,
+    EnvironmentScript,
+)
 
 from deadline.unreal_submitter import settings
 from deadline.unreal_submitter.unreal_open_job.unreal_open_job_entity import UnrealOpenJobEntity
@@ -100,14 +104,20 @@ class UnrealOpenJobEnvironment(UnrealOpenJobEntity):
         """
         Build Environment OpenJD model with updated name and variables dictionary
         """
-
         environment_template_object = self.get_template_object()
+
+        template_dict = {
+            "name": self.name,
+        }
+
         script = environment_template_object.get("script")
-        return self.template_class(
-            name=self.name,
-            script=EnvironmentScript(**script) if script else None,
-            variables=self._variables if self._variables else None,
-        )
+        if script:
+            template_dict["script"] = parse_model(model=EnvironmentScript, obj=script)
+
+        if self._variables:
+            template_dict["variables"] = self._variables
+
+        return parse_model(model=self.template_class, obj=template_dict)
 
 
 # Launch Unreal Editor Environment
