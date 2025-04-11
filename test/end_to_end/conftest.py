@@ -228,7 +228,7 @@ def run_unreal_test(request, reusable_farm_id, reusable_queue_id):
         if deadlineargs is None:
             deadlineargs = "-NoLoadingScreen -FixedSeed -log -Unattended -MRQInstance -deterministicaudio -audiomixer"
 
-        test_params_str = f"-testparams=farm_id={reusable_farm_id},queue_id={reusable_queue_id}"
+        test_params_str = f"-testparams=farm_id={reusable_farm_id};queue_id={reusable_queue_id}"
 
         engine_root = find_engine_root(request.config.getoption("--ueversion"))
 
