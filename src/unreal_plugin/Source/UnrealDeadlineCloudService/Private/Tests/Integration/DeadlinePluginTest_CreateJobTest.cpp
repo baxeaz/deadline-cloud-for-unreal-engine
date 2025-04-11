@@ -139,9 +139,36 @@ public:
             FString ParamsString;
             if (FParse::Value(FCommandLine::Get(), TEXT("testparams="), ParamsString))
             {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString %s"), *ParamsString);
+                UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString: '%s'"), *ParamsString);
                 
-                // Parse farm_id directly
+                // Debug the full command line
+                UE_LOG(LogCreateJobTest, Display, TEXT("Full command line: '%s'"), FCommandLine::Get());
+                
+                // Try direct extraction of queue_id first
+                FString QueueId;
+                bool bFoundQueue = false;
+                
+                // Look for queue_id specifically
+                int32 QueueIdPos = ParamsString.Find(TEXT("queue_id="));
+                if (QueueIdPos != INDEX_NONE)
+                {
+                    FString QueueIdSubstr = ParamsString.Mid(QueueIdPos + 9); // 9 is length of "queue_id="
+                    int32 CommaPos = QueueIdSubstr.Find(TEXT(","));
+                    
+                    if (CommaPos != INDEX_NONE)
+                    {
+                        QueueId = QueueIdSubstr.Left(CommaPos);
+                    }
+                    else
+                    {
+                        QueueId = QueueIdSubstr;
+                    }
+                    
+                    bFoundQueue = !QueueId.IsEmpty();
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Direct extraction found queue_id: '%s'"), *QueueId);
+                }
+                
+                // Parse farm_id
                 FString FarmId;
                 if (FParse::Value(*ParamsString, TEXT("farm_id="), FarmId))
                 {
@@ -151,46 +178,53 @@ public:
                     {
                         FarmId = FarmId.Left(CommaIndex);
                     }
-                    UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to %s"), *FarmId);
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *FarmId);
                     Settings->WorkStationConfiguration.Profile.DefaultFarm = FarmId;
                 }
                 
-                // Parse queue_id directly
-                FString QueueId;
-                if (FParse::Value(*ParamsString, TEXT("queue_id="), QueueId))
+                // Set queue_id if we found it
+                if (bFoundQueue)
                 {
-                    // Remove any trailing comma if present
-                    int32 CommaIndex;
-                    if (QueueId.FindChar(',', CommaIndex))
-                    {
-                        QueueId = QueueId.Left(CommaIndex);
-                    }
-                    UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to %s"), *QueueId);
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *QueueId);
                     Settings->WorkStationConfiguration.Farm.DefaultQueue = QueueId;
                 }
+                else
+                {
+                    UE_LOG(LogCreateJobTest, Error, TEXT("Failed to extract queue_id from parameters"));
+                }
                 
-                // Keep the original parsing as a fallback
-                if (FarmId.IsEmpty() || QueueId.IsEmpty())
+                // Fallback parsing as a last resort
+                if (FarmId.IsEmpty() || !bFoundQueue)
                 {
                     UE_LOG(LogCreateJobTest, Display, TEXT("Using fallback parsing method"));
                     TArray<FString> KeyValuePairs;
                     ParamsString.ParseIntoArray(KeyValuePairs, TEXT(","), true);
-
-                    for (const FString& Pair : KeyValuePairs)
+                    
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Split into %d key-value pairs"), KeyValuePairs.Num());
+                    for (int32 i = 0; i < KeyValuePairs.Num(); ++i)
                     {
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Pair %d: '%s'"), i, *KeyValuePairs[i]);
+                        
                         FString Key, Value;
-                        if (Pair.Split(TEXT("="), &Key, &Value))
+                        if (KeyValuePairs[i].Split(TEXT("="), &Key, &Value))
                         {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Split into key='%s', value='%s'"), *Key, *Value);
+                            
                             if (Key == TEXT("farm_id") && !Value.IsEmpty() && FarmId.IsEmpty())
                             {
-                                UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm (fallback) to %s"), *Value);
+                                UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm (fallback) to '%s'"), *Value);
                                 Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
                             }
-                            else if (Key == TEXT("queue_id") && !Value.IsEmpty() && QueueId.IsEmpty())
+                            else if (Key == TEXT("queue_id") && !Value.IsEmpty() && !bFoundQueue)
                             {
-                                UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue (fallback) to %s"), *Value);
+                                UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue (fallback) to '%s'"), *Value);
                                 Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
+                                bFoundQueue = true;
                             }
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Failed to split pair '%s' on '='"), *KeyValuePairs[i]);
                         }
                     }
                 }
