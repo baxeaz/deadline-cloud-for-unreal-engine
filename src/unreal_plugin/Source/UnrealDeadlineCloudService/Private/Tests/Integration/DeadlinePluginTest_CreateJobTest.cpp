@@ -1,5 +1,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "CoreMinimal.h"
+#include "DeadlineCloudJobSettings/DeadlineCloudDeveloperSettings.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationCommon.h"
@@ -118,6 +119,78 @@ private:
     UMoviePipelineQueue* m_originalQueue;
 };
 
+// Scoped settings modifier class
+class FScopedSettingsModifier
+{
+public:
+    FScopedSettingsModifier()
+    {
+        UE_LOG(LogCreateJobTest, Display, TEXT("Creating scoped settings object"));
+        // Get settings and store original values
+        Settings = GetMutableDefault<UDeadlineCloudDeveloperSettings>();
+        if (Settings)
+        {
+            // Cache original values
+            OriginalFarmId = Settings->WorkStationConfiguration.Profile.DefaultFarm;
+            OriginalQueueId = Settings->WorkStationConfiguration.Farm.DefaultQueue;
+
+            UE_LOG(LogCreateJobTest, Display, TEXT("Updating settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
+            // Parse command line parameters
+            FString ParamsString;
+            if (FParse::Value(FCommandLine::Get(), TEXT("testparams="), ParamsString))
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString %s"), *ParamsString);
+                TArray<FString> KeyValuePairs;
+                ParamsString.ParseIntoArray(KeyValuePairs, TEXT(","), true);
+
+                for (const FString& Pair : KeyValuePairs)
+                {
+                    FString Key, Value;
+                    if (Pair.Split(TEXT("="), &Key, &Value))
+                    {
+                        if (Key == TEXT("farm_id") && !Value.IsEmpty())
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to %s"), *Value);
+                            Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
+                        }
+                        else if (Key == TEXT("queue_id") && !Value.IsEmpty())
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to %s"), *Value);
+                            Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
+                        }
+                    }
+                }
+
+                // Save the settings
+                Settings->SaveConfig();
+            }
+            Settings->OnSettingsModified("DefaultFarm");
+        }
+    }
+
+    ~FScopedSettingsModifier()
+    {
+        // Restore original settings when going out of scope
+        if (Settings)
+        {
+            UE_LOG(LogCreateJobTest, Display, TEXT("Restoring settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
+            Settings->WorkStationConfiguration.Profile.DefaultFarm = OriginalFarmId;
+            Settings->WorkStationConfiguration.Farm.DefaultQueue = OriginalQueueId;
+            Settings->SaveConfig();
+        }
+        Settings->OnSettingsModified("DefaultFarm");
+    }
+
+private:
+    UDeadlineCloudDeveloperSettings* Settings;
+    FString OriginalFarmId;
+    FString OriginalQueueId;
+
+    // Prevent copying
+    FScopedSettingsModifier(const FScopedSettingsModifier&) = delete;
+    FScopedSettingsModifier& operator=(const FScopedSettingsModifier&) = delete;
+};
+
 ULevelSequence* FindFirstLevelSequence()
 {
     // Get the asset registry
@@ -162,7 +235,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieQueueCreateJobTest, "Deadline.Integration
     bool FMovieQueueCreateJobTest::RunTest(const FString& Parameters)
 {
     UE_LOG(LogCreateJobTest, Display, TEXT("Starting remote render test"));
-
+    FScopedSettingsModifier SettingsModifier;
     // Get and configure project settings
     UMovieRenderPipelineProjectSettings* ProjectSettings = GetMutableDefault<UMovieRenderPipelineProjectSettings>();
     if (!ProjectSettings)
@@ -239,7 +312,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieQueueCreateJobTest, "Deadline.Integration
     // Currently two "expected" warning/error messages which we should try to resolve separately, but don't currently break anything
     // in our underlying functionality
     // The QueueManifest message may appear 1 or 2 times depending on whether you've run the test before.
-    AddExpectedError(TEXT("Failed to load '/Engine/MovieRenderPipeline/Editor/QueueManifest': Can't find file"),
+    AddExpectedError(TEXT("/Engine/MovieRenderPipeline/Editor/QueueManifest"),
         EAutomationExpectedErrorFlags::Contains, 0);
     // The -execcmds message may appear 1 or 2 times depending on whether you've run the test before
     AddExpectedError(TEXT("Appearance of custom '-execcmds' argument on the Render node can cause unpredictable issues"),

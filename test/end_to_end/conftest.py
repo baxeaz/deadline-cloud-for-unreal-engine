@@ -1,19 +1,78 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
+import boto3
+import botocore
+import deadline.client.config as config
 import json
+import logging
 import pytest
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 
+logger = logging.getLogger(__name__)
+
 from botocore.client import BaseClient
+from typing import Any, Callable, Dict, Generator, Tuple, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
 from scripts.build_plugin import find_engine_root
 
+DEFAULT_MIN_CMF_CONFIGURATION: Any = {
+    "customerManaged": {
+        "mode": "NO_SCALING",
+        "workerCapabilities": {
+            "vCpuCount": {"min": 1},
+            "memoryMiB": {"min": 1024},
+            "osFamily": "WINDOWS",
+            "cpuArchitectureType": "x86_64",
+        },
+    }
+}
+
+DEADLINE_UNREAL_QUEUE_TEST_ROLE = "DeadlineUnrealQueueTestRole"
+
+def get_config_var(key: str, default: str) -> str:
+    var = os.environ.get(key, default)
+    print(f"Using {var} for {key}")
+    return var
+
+TEST_TARGET_REGION: str = get_config_var("TEST_TARGET_REGION", "us-west-2")
+
+@pytest.fixture(scope="session")
+def region() -> str:
+    return TEST_TARGET_REGION
+
+def delete_farm_resource_log_group_util(
+    farm_id: str,
+    resource_id: str,
+) -> None:
+    cwl_client = boto3.client("logs", TEST_TARGET_REGION)
+    log_group_name = f"/aws/deadline/{farm_id}/{resource_id}"
+    retention_number_of_days = 7
+    try:
+        cwl_client.put_retention_policy(logGroupName=log_group_name, retentionInDays=retention_number_of_days)
+    except Exception as e:
+        print(f"put_retention_policy exception {str(e)}")
+        pass
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--nobuild", 
+        action="store_true", 
+        default=False, 
+        help="Skip build_plugin fixture"
+    )
+    parser.addoption(
+        "--ueversion", 
+        action="store", 
+        default=None,
+        help="Specify Unreal Engine version (e.g. 5.4)"
+    )
 
 def get_source_root() -> str:
     """
@@ -63,12 +122,196 @@ def add_plugins_to_project(project_path: str, plugins: list[str]):
     with open(project_path, "w") as f:
         json.dump(project_data, f, indent=2)
 
+@pytest.fixture(scope="session")
+def iam_client(session: boto3.Session, region: str) -> botocore.client.BaseClient:
+    return session.client("iam", region_name=region)
 
 @pytest.fixture(scope="session")
-def build_plugin():
+def sts_client(session: boto3.Session, region: str) -> botocore.client.BaseClient:
+    return session.client("sts", region_name=region)
+
+@pytest.fixture(scope="session")
+def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.client.BaseClient) -> str:
+    # First try to get the test role
+    try:
+        response = iam_client.get_role(RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE)
+        return response["Role"]["Arn"]
+    except botocore.exceptions.ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        error_message = str(e)
+        
+        # If not found, try to create it
+        if error_code == "NoSuchEntity":
+            try:
+                logger.info(f"Creating IAM role: {DEADLINE_UNREAL_QUEUE_TEST_ROLE}")
+                
+                role_policy = {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"Service": credential_vending_service_principal_generator()},
+                            "Action": "sts:AssumeRole",
+                        }
+                    ],
+                }
+                
+                # Create the role
+                create_role_response = iam_client.create_role(
+                    RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE,
+                    Description=DEADLINE_UNREAL_QUEUE_TEST_ROLE,
+                    AssumeRolePolicyDocument=json.dumps(role_policy)
+                )
+                
+                # Create inline policy
+                policy_document = {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "logs:GetLogEvents",
+                            ],
+                            "Resource": "arn:aws:logs:*:*:*:/aws/deadline/*",
+                        },
+                        {
+                            # For synchronizing job attachments
+                            "Effect": "Allow",
+                            "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
+                            "Resource": ["arn:aws:s3:::deadline-test-*"],
+                        }
+                    ]
+                }
+                
+                iam_client.put_role_policy(
+                    RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE,
+                    PolicyName=f"{DEADLINE_UNREAL_QUEUE_TEST_ROLE}Policy",
+                    PolicyDocument=json.dumps(policy_document)
+                )
+                
+                # IAM changes can take time to propagate
+                import time
+                time.sleep(5)
+                
+                return create_role_response["Role"]["Arn"]
+            except botocore.exceptions.ClientError:
+                # If we can't create the role either, fall back to current role
+                logger.warning("Could not create test role, falling back to current execution role")
+        
+        # For AccessDenied or any other error after failed creation attempts, try current role
+        logger.info("No permission to manage IAM roles, using current execution role")
+        
+        # Get the current execution role using STS
+        caller_identity = sts_client.get_caller_identity()
+        current_role_arn = caller_identity.get("Arn")
+        
+        # Log appropriate message based on whether we're using a role or user
+        if ":assumed-role/" in current_role_arn:
+            logger.info(f"Using current execution role: {current_role_arn}")
+        else:
+            logger.warning("Not running as an IAM role, tests may fail if permissions are insufficient")
+            
+        return current_role_arn
+
+@pytest.fixture
+def run_unreal_test(request, reusable_farm_id, reusable_queue_id):
+    def _run_unreal_test(test_path: str, uproject_file: str, deadlineargs: str=None):
+        """
+        Runs an Unreal Engine automation test and determines success or failure by analyzing output patterns
+        rather than relying on the process return code.
+    
+        :param test_path: Automation test path (e.g. "Deadline.Integration.CreateJob")
+        :param uproject_file: Path to the uproject file
+        :param deadlineargs: Optional arguments to pass to Deadline, defaults to basic settings if None
+        :return: Boolean indicating whether the test passed (True) or failed (False)
+        """
+        if deadlineargs is None:
+            deadlineargs = "-NoLoadingScreen -FixedSeed -log -Unattended -MRQInstance -deterministicaudio -audiomixer"
+
+        test_params_str = f"-testparams=\"farm_id={reusable_farm_id},queue_id={reusable_queue_id}\""
+
+        engine_root = find_engine_root(request.config.getoption("--ueversion"))
+
+        unrealeditor_cmd_path = os.path.join(engine_root, "Engine", "Binaries", "Win64")
+        test_args = [
+            os.path.join(unrealeditor_cmd_path, "UnrealEditor-Cmd.exe"),
+            uproject_file,
+            f"-ExecCmds=Automation RunTests {test_path}",
+            "-stdout",
+            "-unattended",
+            "-nullrhi",
+            "-nosplash",
+            "-nosound",
+            "-nocontentbrowser",
+            "-nopause",
+            "-testexit=Automation Test Queue Empty",
+            f"-deadlineargs={deadlineargs}",
+        ]
+
+        # Add test params if provided
+        if test_params_str:
+            test_args.append(test_params_str)
+
+        logger.info(f"Running Unreal test: {test_path}")
+        logger.debug(f"Calling subprocess with args {test_args}")
+    
+        # Start the process and capture output while displaying it
+        process = subprocess.Popen(
+            test_args,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1  # Line buffered
+        )
+        
+        # Collect all output
+        full_output = []
+        
+        # Process and display output in real-time
+        for line in process.stdout:
+            # Print to console in real-time
+            print(line, end='')
+            # Store for later analysis
+            full_output.append(line)
+        
+        # Wait for process to complete and get return code
+        return_code = process.wait()
+        
+        # Join all output lines
+        output_text = ''.join(full_output)
+        
+        # Check if the process executed successfully
+        if return_code != 0:
+            logger.error(f"Unreal Editor process failed with code {return_code}")
+            return False
+        
+        # Check for test failure patterns in the output
+        failure_pattern = f"Result={{Fail}} Name={{[^}}]*}} Path={{{test_path}}}"
+        if re.search(failure_pattern, output_text):
+            logger.error(f"Test {test_path} failed")
+            return False
+        
+        # Check for success pattern
+        success_pattern = f"Result={{Success}} Name={{[^}}]*}} Path={{{test_path}}}"
+        if re.search(success_pattern, output_text):
+            logger.info(f"Test {test_path} passed")
+            return True
+        
+        # If neither pattern is found, something went wrong
+        logger.warning(f"Could not determine test result for {test_path}")
+        return False
+    
+    return _run_unreal_test
+
+@pytest.fixture(scope="session")
+def build_plugin(request):
     # A fixture to run the scripts/build_plugin.py script at most once per test session to guarantee
     # the latest version of the code has been built and installed.  We run the script as a subprocess
     # rather than importing and running the methods directly to simulate how customers will execute it
+
+    if request.config.getoption("--nobuild"):
+        print(f"Skipping build_plugin")
+        return
 
     # build_plugin.py lives in the scripts subfolder relative to the root of the repository
     # which is two folders up from this folder
@@ -78,13 +321,24 @@ def build_plugin():
 
     build_args = ["python", script_path]
     build_args.extend(get_build_script_args())
+
+    passthrough_args = ["--ueversion"]
+
+    for arg in passthrough_args:
+        print(f"Checking arg {arg}")
+        if request.config.getoption(arg):
+            print(f"Found arg {arg}: {request.config.getoption(arg)}")
+            build_args.append(f"{arg}={request.config.getoption(arg)}" if arg.startswith("--") else arg)
+        else:
+            print(f"Arg {arg} not present")
+
     # Run the script and capture the output
     result = subprocess.run(build_args, text=True)
     assert result.returncode == 0
 
 
 @pytest.fixture(scope="session")
-def create_readonly_test_project():
+def create_readonly_test_project(request):
     project_base = os.path.expanduser("~/Documents/UnrealProjects/TestProjects")
     os.makedirs(project_base, exist_ok=True)
 
@@ -93,7 +347,7 @@ def create_readonly_test_project():
     temp_dir = tempfile.TemporaryDirectory(dir=project_base).name
     print(f"Created project folder: {temp_dir}")
 
-    engine_root = find_engine_root()
+    engine_root = find_engine_root(request.config.getoption("--ueversion"))
     # Source path for the template
     source_path = os.path.join(engine_root, "Templates\TP_DMXBP")
     if not os.path.exists(source_path):
@@ -132,7 +386,7 @@ def create_fleet_util(
     """Helper method to create one Fleet.
 
     Args:
-        deadline_client (BaseClient): The client used to call BeaLine API
+        deadline_client (BaseClient): The client used to call deadline API
         wait_for_active (bool, optional): Whether to return the result until Fleet is in ACTIVE status
     """
     if "minWorkerCount" not in kwargs:
@@ -155,6 +409,12 @@ def create_fleet_util(
 
     response = deadline_client.get_fleet(farmId=kwargs["farmId"], fleetId=response["fleetId"])
     return response
+
+@pytest.fixture(scope="session")
+def reusable_farm_id():
+    farm_id = config.get_setting("defaults.farm_id")
+    logger.info(f"Using farm_id {farm_id}")
+    yield farm_id
 
 @pytest.fixture(scope="session")
 def reusable_fleet_id(
@@ -182,29 +442,50 @@ def reusable_fleet_id(
 @pytest.fixture(scope="session")
 def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str) -> Generator[Any, None, None]:
     queues: List[Tuple[str, str]] = []
-
+    
+    def find_existing_queue(farm_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            # List queues in the farm
+            response = deadline_client.list_queues(farmId=farm_id)
+            for queue in response.get("items", []):
+                # Check if this is our test queue
+                if queue.get("displayName") == "unreal-test-queue":
+                    logger.info(f"Found existing test queue: {queue['queueId']} in farm {farm_id}")
+                    return queue
+            return None
+        except Exception as e:
+            logger.warning(f"Error checking for existing queues: {str(e)}")
+            return None
+    
     def create_queue_func(
         farm_id: str, queue_role_arn: Optional[str] = queue_role_arn, job_run_as_user: Optional[dict] = None
     ) -> Dict[str, Any]:
-
+        # First check for an existing queue
+        existing_queue = find_existing_queue(farm_id)
+        if existing_queue:
+            # Track this queue for cleanup (even though we didn't create it)
+            queues.append((farm_id, existing_queue["queueId"]))
+            return existing_queue
+        
+        # Create a new queue if none exists
         response = deadline_client.create_queue(
             farmId=farm_id,
-            displayName="test-queue",
+            displayName="unreal-test-queue",
             jobRunAsUser=job_run_as_user or {"posix": {"user": "", "group": ""}, "runAs": "WORKER_AGENT_USER"},
         )
         queues.append((farm_id, response["queueId"]))
         return response
-
+    
     yield create_queue_func
-
+    
     for queue in queues:
         farm_id, queue_id = queue
         try:
-            deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
+            # Uncomment to delete queues after tests
+            # deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
             delete_farm_resource_log_group_util(farm_id=farm_id, resource_id=queue_id)
         except Exception as e:
-            print(f"Exception occurred while deleting Queue {farm_id} {queue_id}: {str(e)}")
-            pass
+            logger.warning(f"Exception occurred while deleting Queue {farm_id} {queue_id}: {str(e)}")
 
 @pytest.fixture(scope="session")
 def reusable_queue_id(
@@ -252,7 +533,7 @@ def reusable_queue_fleet_association(
 
     try:
         stop_queue_fleet_associations_and_wait(
-            bealine_client=bealine_client,
+            deadline_client=deadline_client,
             farm_id=reusable_farm_id,
             queue_id=reusable_queue_id,
             fleet_id=reusable_customer_managed_fleet_id,
@@ -260,7 +541,7 @@ def reusable_queue_fleet_association(
 
         delete_queue_fleet_associations_with_failure_cleanup(
             control_plane_dynamodb_client=control_plane_dynamodb_client,
-            bealine_client=bealine_client,
+            deadline_client=deadline_client,
             farm_id=reusable_farm_id,
             queue_id=reusable_queue_id,
             fleet_id=reusable_customer_managed_fleet_id,
