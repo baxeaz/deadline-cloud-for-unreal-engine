@@ -150,6 +150,9 @@ public:
                 
                 UE_LOG(LogCreateJobTest, Display, TEXT("Split into %d key-value pairs"), KeyValuePairs.Num());
                 
+                bool farmChanged = false;
+                bool queueChanged = false;
+                
                 for (int32 i = 0; i < KeyValuePairs.Num(); ++i)
                 {
                     UE_LOG(LogCreateJobTest, Display, TEXT("Pair %d: '%s'"), i, *KeyValuePairs[i]);
@@ -163,11 +166,13 @@ public:
                         {
                             UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *Value);
                             Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
+                            farmChanged = true;
                         }
                         else if (Key == TEXT("queue_id") && !Value.IsEmpty())
                         {
                             UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *Value);
                             Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
+                            queueChanged = true;
                         }
                     }
                     else
@@ -178,8 +183,20 @@ public:
 
                 // Save the settings
                 Settings->SaveConfig();
+                
+                // Trigger the Python implementation's on_settings_modified method with the exact property name it expects
+                if (farmChanged)
+                {
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultFarm"));
+                    Settings->OnSettingsModified("DefaultFarm");
+                }
+                
+                if (queueChanged)
+                {
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultQueue"));
+                    Settings->OnSettingsModified("DefaultQueue");
+                }
             }
-            Settings->OnSettingsModified("DefaultFarm");
         }
     }
 
