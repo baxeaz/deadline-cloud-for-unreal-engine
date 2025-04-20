@@ -127,77 +127,81 @@ public:
     {
         UE_LOG(LogCreateJobTest, Display, TEXT("Creating scoped settings object"));
         // Get settings and store original values
-        Settings = GetMutableDefault<UDeadlineCloudDeveloperSettings>();
-        if (Settings)
+        Settings = UDeadlineCloudDeveloperSettings::Get();
+        if (!Settings)
         {
-            // Cache original values
-            OriginalFarmId = Settings->WorkStationConfiguration.Profile.DefaultFarm;
-            OriginalQueueId = Settings->WorkStationConfiguration.Farm.DefaultQueue;
+            UE_LOG(LogCreateJobTest, Error, TEXT("Failed to get Python implementation of settings"));
+            return;
+        }
 
-            UE_LOG(LogCreateJobTest, Display, TEXT("Updating settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
-            // Parse command line parameters
-            FString ParamsString;
-            if (FParse::Value(FCommandLine::Get(), TEXT("testparams="), ParamsString))
+        // Cache original values
+        OriginalFarmId = Settings->WorkStationConfiguration.Profile.DefaultFarm;
+        OriginalQueueId = Settings->WorkStationConfiguration.Farm.DefaultQueue;
+
+        UE_LOG(LogCreateJobTest, Display, TEXT("Updating settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
+        // Parse command line parameters
+        FString ParamsString;
+        if (FParse::Value(FCommandLine::Get(), TEXT("testparams="), ParamsString))
+        {
+            UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString: '%s'"), *ParamsString);
+                
+            // Debug the full command line
+            UE_LOG(LogCreateJobTest, Display, TEXT("Full command line: '%s'"), FCommandLine::Get());
+                
+            // Split using semicolon delimiter
+            TArray<FString> KeyValuePairs;
+            ParamsString.ParseIntoArray(KeyValuePairs, TEXT(";"), true);
+                
+            UE_LOG(LogCreateJobTest, Display, TEXT("Split into %d key-value pairs"), KeyValuePairs.Num());
+                
+            bool farmChanged = false;
+            bool queueChanged = false;
+                
+            for (int32 i = 0; i < KeyValuePairs.Num(); ++i)
             {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString: '%s'"), *ParamsString);
-                
-                // Debug the full command line
-                UE_LOG(LogCreateJobTest, Display, TEXT("Full command line: '%s'"), FCommandLine::Get());
-                
-                // Split using semicolon delimiter
-                TArray<FString> KeyValuePairs;
-                ParamsString.ParseIntoArray(KeyValuePairs, TEXT(";"), true);
-                
-                UE_LOG(LogCreateJobTest, Display, TEXT("Split into %d key-value pairs"), KeyValuePairs.Num());
-                
-                bool farmChanged = false;
-                bool queueChanged = false;
-                
-                for (int32 i = 0; i < KeyValuePairs.Num(); ++i)
-                {
-                    UE_LOG(LogCreateJobTest, Display, TEXT("Pair %d: '%s'"), i, *KeyValuePairs[i]);
+                UE_LOG(LogCreateJobTest, Display, TEXT("Pair %d: '%s'"), i, *KeyValuePairs[i]);
                     
-                    FString Key, Value;
-                    if (KeyValuePairs[i].Split(TEXT("="), &Key, &Value))
-                    {
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Split into key='%s', value='%s'"), *Key, *Value);
+                FString Key, Value;
+                if (KeyValuePairs[i].Split(TEXT("="), &Key, &Value))
+                {
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Split into key='%s', value='%s'"), *Key, *Value);
                         
-                        if (Key == TEXT("farm_id") && !Value.IsEmpty())
-                        {
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *Value);
-                            Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
-                            farmChanged = true;
-                        }
-                        else if (Key == TEXT("queue_id") && !Value.IsEmpty())
-                        {
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *Value);
-                            Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
-                            queueChanged = true;
-                        }
-                    }
-                    else
+                    if (Key == TEXT("farm_id") && !Value.IsEmpty())
                     {
-                        UE_LOG(LogCreateJobTest, Warning, TEXT("Failed to split pair '%s' on '='"), *KeyValuePairs[i]);
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *Value);
+                        Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
+                        farmChanged = true;
+                    }
+                    else if (Key == TEXT("queue_id") && !Value.IsEmpty())
+                    {
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *Value);
+                        Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
+                        queueChanged = true;
                     }
                 }
-
-                // Save the settings
-                Settings->SaveConfig();
-                
-                // Trigger the Python implementation's on_settings_modified method with the exact property name it expects
-                if (farmChanged)
+                else
                 {
-                    UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultFarm"));
-                    Settings->OnSettingsModified("DefaultFarm");
-                }
-                
-                if (queueChanged)
-                {
-                    UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultQueue"));
-                    Settings->OnSettingsModified("DefaultQueue");
+                    UE_LOG(LogCreateJobTest, Warning, TEXT("Failed to split pair '%s' on '='"), *KeyValuePairs[i]);
                 }
             }
+
+            // Save the settings
+            Settings->SaveConfig();
+                
+            // Trigger the Python implementation's on_settings_modified method with the exact property name it expects
+            if (farmChanged)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultFarm"));
+                Settings->OnSettingsModified("DefaultFarm");
+            }
+                
+            if (queueChanged)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultQueue"));
+                Settings->OnSettingsModified("DefaultQueue");
+            }
         }
+
     }
 
     ~FScopedSettingsModifier()
