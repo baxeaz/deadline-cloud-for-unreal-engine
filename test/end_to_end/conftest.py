@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -191,8 +192,7 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
                 )
                 
                 # IAM changes can take time to propagate
-                import time
-                time.sleep(5)
+                time.sleep(20)
                 
                 return create_role_response["Role"]["Arn"]
             except botocore.exceptions.ClientError:
@@ -214,17 +214,114 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
             
         return current_role_arn
 
+def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait_time=120, wait_interval=10):
+    """
+    Monitor a Deadline Cloud job until it completes or times out.
+
+    Args:
+        deadline_client: Boto3 Deadline client
+        farm_id: The farm ID containing the job
+        job_id: The job ID to monitor
+        queue_id: The queue ID containing the job
+        max_wait_time: Maximum time to wait in seconds (default: 120)
+        wait_interval: Time between status checks in seconds (default: 10)
+
+    Returns:
+        tuple: (success, status, message)
+            - success: Boolean indicating if job completed successfully
+            - status: Final job status
+            - message: Descriptive message about the outcome
+    """
+    import time
+
+    logger.info(f"Monitoring job {job_id} in farm {farm_id}")
+
+    elapsed_time = 0
+    status = None
+
+    while elapsed_time < max_wait_time:
+        try:
+            # Get job status
+            job_response = deadline_client.get_job(
+                farmId=farm_id,
+                queueId=queue_id,
+                jobId=job_id
+            )
+
+            status = job_response.get('status')
+            logger.info(f"Job {job_id} status: {status}")
+
+            # Check if job completed
+            if status == "SUCCEEDED":
+                logger.info(f"Job {job_id} completed successfully!")
+                return True, status, f"Job {job_id} completed successfully"
+            elif status in ["FAILED", "CANCELED"]:
+                logger.error(f"Job {job_id} ended with status: {status}")
+                return False, status, f"Job {job_id} failed with status: {status}"
+
+            # Wait before checking again
+            time.sleep(wait_interval)
+            elapsed_time += wait_interval
+
+        except Exception as e:
+            error_msg = f"Error checking job status: {str(e)}"
+            logger.error(error_msg)
+            return False, "ERROR", error_msg
+
+    timeout_msg = f"Timeout waiting for job {job_id} to complete. Last status: {status}"
+    logger.warning(timeout_msg)
+    return False, status, timeout_msg
+
+
+def extract_job_info_from_test_output(output_lines):
+    """
+    Extract job ID, farm ID, and queue ID from test output lines.
+
+    Args:
+        output_lines: List of output lines from the test
+
+    Returns:
+        tuple: (job_id, farm_id, queue_id) - Any may be None if not found
+    """
+    import re
+
+    job_id = None
+    farm_id = None
+    queue_id = None
+
+    for line in output_lines:
+        # Look for the job ID in the log message
+        job_id_match = re.search(r"Found job creation log message with job ID: (job-[a-zA-Z0-9]+)", line)
+        if job_id_match:
+            job_id = job_id_match.group(1)
+            logger.info(f"Extracted job ID: {job_id}")
+
+        # Look for farm ID in the output
+        farm_id_match = re.search(r"farm_id=([a-zA-Z0-9-]+)", line)
+        if farm_id_match:
+            farm_id = farm_id_match.group(1)
+            logger.info(f"Extracted farm ID: {farm_id}")
+
+        # Look for queue ID in the output
+        queue_id_match = re.search(r"queue_id=([a-zA-Z0-9-]+)", line)
+        if queue_id_match:
+            queue_id = queue_id_match.group(1)
+            logger.info(f"Extracted queue ID: {queue_id}")
+
+    return job_id, farm_id, queue_id
+
 @pytest.fixture
 def run_unreal_test(request, reusable_queue_fleet_association):
     def _run_unreal_test(test_path: str, uproject_file: str, deadlineargs: str=None):
         """
         Runs an Unreal Engine automation test and determines success or failure by analyzing output patterns
         rather than relying on the process return code.
-    
+
         :param test_path: Automation test path (e.g. "Deadline.Integration.CreateJob")
         :param uproject_file: Path to the uproject file
         :param deadlineargs: Optional arguments to pass to Deadline, defaults to basic settings if None
-        :return: Boolean indicating whether the test passed (True) or failed (False)
+        :return: Tuple of (success, output_lines) where success is a boolean indicating whether the test passed,
+                and output_lines is a list of all output lines from the test
         """
         if deadlineargs is None:
             deadlineargs = "-NoLoadingScreen -FixedSeed -log -Unattended -MRQInstance -deterministicaudio -audiomixer"
@@ -259,7 +356,7 @@ def run_unreal_test(request, reusable_queue_fleet_association):
 
         logger.info(f"Running Unreal test: {test_path}")
         logger.debug(f"Calling subprocess with args {test_args}")
-    
+
         # Start the process and capture output while displaying it
         process = subprocess.Popen(
             test_args,
@@ -268,44 +365,49 @@ def run_unreal_test(request, reusable_queue_fleet_association):
             stderr=subprocess.STDOUT,
             bufsize=1  # Line buffered
         )
-        
+
         # Collect all output
         full_output = []
-        
+
         # Process and display output in real-time
         for line in process.stdout:
             # Print to console in real-time
             print(line, end='')
             # Store for later analysis
             full_output.append(line)
-        
+
         # Wait for process to complete and get return code
         return_code = process.wait()
-        
+
         # Join all output lines
         output_text = ''.join(full_output)
-        
+
         # Check if the process executed successfully
+        success = True
         if return_code != 0:
             logger.error(f"Unreal Editor process failed with code {return_code}")
-            return False
-        
+            success = False
+
         # Check for test failure patterns in the output
         failure_pattern = f"Result={{Fail}} Name={{[^}}]*}} Path={{{test_path}}}"
         if re.search(failure_pattern, output_text):
             logger.error(f"Test {test_path} failed")
-            return False
-        
+            success = False
+
         # Check for success pattern
         success_pattern = f"Result={{Success}} Name={{[^}}]*}} Path={{{test_path}}}"
         if re.search(success_pattern, output_text):
             logger.info(f"Test {test_path} passed")
-            return True
-        
-        # If neither pattern is found, something went wrong
-        logger.warning(f"Could not determine test result for {test_path}")
-        return False
-    
+            success = True
+        else:
+            # If neither pattern is found, something went wrong
+            if not re.search(failure_pattern, output_text):
+                logger.warning(f"Could not determine test result for {test_path}")
+                success = False
+
+        # Return both success status and output lines
+        return success, full_output
+
     return _run_unreal_test
 
 @pytest.fixture(scope="session")
@@ -509,7 +611,6 @@ def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore
             )
                 
             # IAM changes can take time to propagate
-            import time
             time.sleep(5)
                 
             return create_role_response["Role"]["Arn"]
@@ -532,6 +633,66 @@ def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore
             
         return current_role_arn
 
+def delete_fleets_util(deadline_client, fleet_responses):
+    """Delete specific fleets created during testing with proper lifecycle management"""
+    for response in fleet_responses:
+        try:
+            if "fleetId" in response and "farmId" in response:
+                fleet_id = response["fleetId"]
+                farm_id = response["farmId"]
+
+                # First check if there are any queue-fleet associations
+                try:
+                    # List queue-fleet associations for this fleet
+                    qfa_response = deadline_client.list_queue_fleet_associations(
+                        farmId=farm_id,
+                        fleetId=fleet_id
+                    )
+
+                    # Update status and then delete any queue-fleet associations
+                    for qfa in qfa_response.get("queueFleetAssociations", []):
+                        queue_id = qfa.get("queueId")
+                        current_status = qfa.get("status")
+                        if queue_id:
+                            try:
+                                # Only update status if it's currently ACTIVE
+                                if current_status == "ACTIVE":
+                                    # First update the status to stop scheduling and cancel tasks
+                                    deadline_client.update_queue_fleet_association(
+                                        farmId=farm_id,
+                                        queueId=queue_id,
+                                        fleetId=fleet_id,
+                                        status="STOP_SCHEDULING_AND_CANCEL_TASKS"
+                                    )
+                                    logger.info(f"Updated queue-fleet association status to STOP_SCHEDULING_AND_CANCEL_TASKS for queue {queue_id} and fleet {fleet_id}")
+
+                                    # Wait for the status change to take effect
+                                    import time
+                                    time.sleep(5)
+                                else:
+                                    logger.info(f"Skipping status update as current status is {current_status}, not ACTIVE")
+
+                                # Now delete the queue-fleet association
+                                deadline_client.delete_queue_fleet_association(
+                                    farmId=farm_id,
+                                    queueId=queue_id,
+                                    fleetId=fleet_id
+                                )
+                                logger.info(f"Deleted queue-fleet association between queue {queue_id} and fleet {fleet_id}")
+                            except Exception as e:
+                                logger.warning(f"Failed to manage queue-fleet association: {str(e)}")
+                except Exception as e:
+                    logger.warning(f"Error listing queue-fleet associations: {str(e)}")
+
+                # Now delete the fleet
+                deadline_client.delete_fleet(
+                    farmId=farm_id,
+                    fleetId=fleet_id
+                )
+                logger.info(f"Deleted fleet {fleet_id} from farm {farm_id}")
+        except Exception as e:
+            logger.warning(f"Exception occurred while deleting fleet: {str(e)}")
+
 @pytest.fixture(scope="session")
 def reusable_fleet_id(
     worker_id: str,
@@ -547,12 +708,12 @@ def reusable_fleet_id(
         configuration=DEFAULT_MIN_CMF_CONFIGURATION,
         maxWorkerCount=100,
     )
-    # Wait for the fleet to be synchronized into Scheduler.
-    time.sleep(SECONDS_TO_WAIT_FOR_CP_DP_SYNC)
+    # Wait for the fleet to be ready
+    time.sleep(30)
 
     yield response["fleetId"]
 
-    delete_fleets_util(control_plane_dynamodb_client, deadline_client, [response])
+    delete_fleets_util(deadline_client, [response])
 
 
 @pytest.fixture(scope="session")
@@ -614,25 +775,52 @@ def reusable_queue_id(
 def stop_queue_fleet_associations_and_wait(
     deadline_client: BaseClient, farm_id: str, queue_id: str, fleet_id: str
 ) -> None:
-    # temporary catch-except to skip orphaned QFA resources that will always fail this operation
+    """
+    Stop Queue Fleet Association. Attempts to transition from ACTIVE to STOP_SCHEDULING_AND_CANCEL_TASKS.
+    Checks current status first and only updates if it's ACTIVE.
+    """
     try:
-        # Cleanup the Queue Fleet Association by first waiting for jobs to complete.
-        deadline_client.update_queue_fleet_association(
-            farmId=farm_id,
-            queueId=queue_id,
-            fleetId=fleet_id,
-            status=ResourceState.STATE_STOP_SCHEDULING_AND_CANCEL_TASKS,
-        )
-        waiter = deadline_client.get_waiter("queue_fleet_association_stopped")
-        waiter.wait(farmId=farm_id, queueId=queue_id, fleetId=fleet_id)
+        # First get the current status
+        try:
+            response = deadline_client.get_queue_fleet_association(
+                farmId=farm_id, queueId=queue_id, fleetId=fleet_id
+            )
+            current_status = response.get("status")
+            logger.info(f"Current QFA status for farm {farm_id}, queue {queue_id}, fleet {fleet_id}: {current_status}")
 
-        response = deadline_client.get_queue_fleet_association(farmId=farm_id, queueId=queue_id, fleetId=fleet_id)
-        final_status = response[QueueFleetAssociationKeys.STATUS]
-        logging.info(
-            f"Stopping Queue Fleet Association farm {farm_id} fleet {fleet_id} queue {queue_id} final status {final_status}"
-        )
-    except:
-        pass
+            # Only update if status is ACTIVE
+            if current_status == "ACTIVE":
+                # Update the status to stop scheduling and cancel tasks
+                logger.info(f"Updating QFA status to STOP_SCHEDULING_AND_CANCEL_TASKS")
+                deadline_client.update_queue_fleet_association(
+                    farmId=farm_id,
+                    queueId=queue_id,
+                    fleetId=fleet_id,
+                    status="STOP_SCHEDULING_AND_CANCEL_TASKS",
+                )
+
+                # Wait for the status change to take effect
+                logger.info("Waiting for QFA to reach stopped state...")
+                waiter = deadline_client.get_waiter("queue_fleet_association_stopped")
+                waiter.wait(farmId=farm_id, queueId=queue_id, fleetId=fleet_id)
+
+                # Get the final status
+                response = deadline_client.get_queue_fleet_association(
+                    farmId=farm_id, queueId=queue_id, fleetId=fleet_id
+                )
+                final_status = response.get("status")
+                logger.info(
+                    f"QFA status after waiting: {final_status}"
+                )
+            else:
+                logger.info(f"Skipping status update as current status is {current_status}, not ACTIVE")
+        except Exception as e:
+            logger.error(f"Error getting or updating QFA: {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Failed to stop queue fleet association: {str(e)}")
+        # Re-raise the exception so the caller knows something went wrong
+        raise
 
 @pytest.fixture(scope="session")
 def reusable_queue_fleet_association(
@@ -652,7 +840,7 @@ def reusable_queue_fleet_association(
             deadline_client=deadline_client,
             farm_id=reusable_farm_id,
             queue_id=reusable_queue_id,
-            fleet_id=reusable_customer_managed_fleet_id,
+            fleet_id=reusable_fleet_id,
         )
 
         deadline_client.delete_queue_fleet_association(farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id)

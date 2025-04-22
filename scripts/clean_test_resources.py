@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""
+Cleanup script for Deadline Cloud test resources.
+
+This script identifies and removes test resources created during Deadline Cloud for Unreal Engine tests,
+including queue-fleet associations, queues, and fleets.
+"""
+
+import argparse
+import boto3
+import json
+import subprocess
+import time
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
+# Constants
+TEST_QUEUE_NAME = "unreal-test-queue"
+TEST_FLEET_NAME = "test-reusable-customer-managed-fleet"
+WAIT_TIME_SECONDS = 5
+
+def get_current_farm_id():
+    """Get the current farm ID from deadline config show command"""
+    try:
+        result = subprocess.run(
+            ["deadline", "config", "show"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        # Parse the output to find the farm ID
+        for line in result.stdout.splitlines():
+            if "defaults.farm_id" in line:
+                # Extract farm ID from line like "defaults.farm_id: farm-50c8ad9777304c498c55a16c9424fd3e"
+                parts = line.split(":", 1)
+                if len(parts) > 1:
+                    # Extract just the farm ID, removing any description text after it
+                    farm_id = parts[1].strip().split(" ")[0].strip()
+                    return farm_id
+
+        logger.error("Could not find defaults.farm_id in deadline config output")
+        return None
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running deadline config show: {e}")
+        logger.error(f"STDOUT: {e.stdout}")
+        logger.error(f"STDERR: {e.stderr}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error getting farm ID: {e}")
+        return None
+
+
+def cleanup_resources(farm_id, dry_run=False):
+    """Clean up test resources in the specified farm"""
+    if not farm_id:
+        logger.error("No farm ID provided, cannot clean up resources")
+        return False
+
+    logger.info(f"Cleaning up test resources in farm {farm_id}")
+    if dry_run:
+        logger.info("DRY RUN MODE: No resources will be deleted")
+
+    # Create AWS clients
+    deadline_client = boto3.client('deadline')
+
+    # Step 1: Find all test queues
+    test_queues = []
+    try:
+        paginator = deadline_client.get_paginator('list_queues')
+        for page in paginator.paginate(farmId=farm_id):
+            for queue in page.get('queues', []):
+                if queue.get('displayName') == TEST_QUEUE_NAME:
+                    test_queues.append(queue)
+
+        logger.info(f"Found {len(test_queues)} test queues")
+    except Exception as e:
+        logger.error(f"Error listing queues: {e}")
+
+    # Step 2: Find all test fleets
+    test_fleets = []
+    try:
+        paginator = deadline_client.get_paginator('list_fleets')
+        for page in paginator.paginate(farmId=farm_id):
+            for fleet in page.get('fleets', []):
+                if fleet.get('displayName') == TEST_FLEET_NAME:
+                    test_fleets.append(fleet)
+
+        logger.info(f"Found {len(test_fleets)} test fleets")
+    except Exception as e:
+        logger.error(f"Error listing fleets: {e}")
+
+    # Step 3: Find and clean up queue-fleet associations
+    for fleet in test_fleets:
+        fleet_id = fleet['fleetId']
+        try:
+            qfa_response = deadline_client.list_queue_fleet_associations(
+                farmId=farm_id,
+                fleetId=fleet_id
+            )
+
+            for qfa in qfa_response.get('queueFleetAssociations', []):
+                queue_id = qfa.get('queueId')
+                current_status = qfa.get('status')
+                if queue_id:
+                    logger.info(f"Found queue-fleet association between queue {queue_id} and fleet {fleet_id} with status {current_status}")
+
+                    if not dry_run:
+                        try:
+                            # Only update status if it's currently ACTIVE
+                            if current_status == "ACTIVE":
+                                deadline_client.update_queue_fleet_association(
+                                    farmId=farm_id,
+                                    queueId=queue_id,
+                                    fleetId=fleet_id,
+                                    status="STOP_SCHEDULING_AND_CANCEL_TASKS"
+                                )
+                                logger.info(f"Updated queue-fleet association status to STOP_SCHEDULING_AND_CANCEL_TASKS")
+
+                                # Wait for the status change to take effect
+                                logger.info(f"Waiting {WAIT_TIME_SECONDS} seconds for status change to take effect...")
+                                time.sleep(WAIT_TIME_SECONDS)
+                            else:
+                                logger.info(f"Skipping status update as current status is {current_status}, not ACTIVE")
+
+                            # Try to delete the queue-fleet association
+                            deadline_client.delete_queue_fleet_association(
+                                farmId=farm_id,
+                                queueId=queue_id,
+                                fleetId=fleet_id
+                            )
+                            logger.info(f"Deleted queue-fleet association")
+                        except Exception as e:
+                            logger.error(f"Error managing queue-fleet association: {e}")
+        except Exception as e:
+            logger.error(f"Error listing queue-fleet associations for fleet {fleet_id}: {e}")
+
+    # Step 4: Delete test queues
+    for queue in test_queues:
+        queue_id = queue['queueId']
+        logger.info(f"Preparing to delete test queue {queue_id} ({queue.get('displayName')})")
+
+        if not dry_run:
+            try:
+                deadline_client.delete_queue(
+                    farmId=farm_id,
+                    queueId=queue_id
+                )
+                logger.info(f"Deleted queue {queue_id}")
+            except Exception as e:
+                logger.error(f"Error deleting queue {queue_id}: {e}")
+
+    # Step 5: Delete test fleets
+    for fleet in test_fleets:
+        fleet_id = fleet['fleetId']
+        logger.info(f"Preparing to delete test fleet {fleet_id} ({fleet.get('displayName')})")
+
+        if not dry_run:
+            try:
+                deadline_client.delete_fleet(
+                    farmId=farm_id,
+                    fleetId=fleet_id
+                )
+                logger.info(f"Deleted fleet {fleet_id}")
+            except Exception as e:
+                logger.error(f"Error deleting fleet {fleet_id}: {e}")
+
+    logger.info("Cleanup completed")
+    return True
+
+def main():
+    parser = argparse.ArgumentParser(description="Clean up Deadline Cloud test resources")
+    parser.add_argument("--farm-id", help="Farm ID to clean up (defaults to current farm from deadline config)")
+    parser.add_argument("--dry-run", action="store_true", help="List resources but don't delete them")
+    args = parser.parse_args()
+
+    farm_id = args.farm_id
+    if not farm_id:
+        logger.info("No farm ID provided, getting current farm from deadline config")
+        farm_id = get_current_farm_id()
+
+    if not farm_id:
+        logger.error("Could not determine farm ID. Please specify with --farm-id")
+        return 1
+
+    logger.info(f"Using farm ID: {farm_id}")
+    success = cleanup_resources(farm_id, args.dry_run)
+
+    return 0 if success else 1
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -45,7 +45,29 @@ public:
         // Check for Python job creation message
         if (category == TEXT("LogPython") && FCString::Stristr(msg, TEXT("Job creation result: job-")))
         {
-            UE_LOG(LogCreateJobTest, Display, TEXT("Found job creation log message"));
+            // Extract the job ID from the log message
+            FString LogMessage(msg);
+            FString JobId;
+
+            // Find the job ID in the message (format: "Job creation result: job-xxxxxxxx")
+            if (LogMessage.Contains(TEXT("Job creation result: ")))
+            {
+                int32 StartPos = LogMessage.Find(TEXT("Job creation result: ")) + FCString::Strlen(TEXT("Job creation result: "));
+                JobId = LogMessage.Mid(StartPos).TrimEnd();
+
+                // Remove any trailing characters like newlines or quotes
+                JobId = JobId.TrimEnd().TrimQuotes();
+            }
+
+            if (!JobId.IsEmpty())
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Found job creation log message with job ID: %s"), *JobId);
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Found job creation log message but couldn't extract job ID"));
+            }
+
             m_jobCreationFound = true;
         }
 
