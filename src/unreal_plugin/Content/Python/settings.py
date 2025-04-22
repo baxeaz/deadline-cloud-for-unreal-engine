@@ -220,17 +220,9 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
 
     @unreal.ufunction(override=True)
     def on_settings_modified(self, property_name):
-        """
-        TODO refresh config
-        1. When we change an "aws profile" we need to pull Job history dir and default farm
-        2. When we change "default farm" we need to pull default queue,
-           default storage profile, and job attachment fs options
-        """
         logger.info(f"Changed property: {property_name}")
 
         # This means we need to change default profile
-        # If the default profile is changed then we update it in the config first
-        # after that we need to save this setting first and read settings for all other values
         if property_name == "AWS_Profile":
             config.set_setting(
                 "defaults.aws_profile_name",
@@ -240,10 +232,42 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
             return
 
         if property_name == "DefaultFarm":
-            farm = self.find_farm_by_name(self.work_station_configuration.profile.default_farm)
-            if farm is not None:
-                config.set_setting("defaults.farm_id", farm.id)
+            farm_value = self.work_station_configuration.profile.default_farm
+            logger.info(f"Farm value: {farm_value}")
+
+            # Check if the farm value is already an ID (starts with "farm-")
+            if farm_value.startswith("farm-"):
+                logger.info(f"Farm value appears to be an ID, setting directly: {farm_value}")
+                config.set_setting("defaults.farm_id", farm_value)
+            else:
+                # It's a name, look it up
+                farm = self.find_farm_by_name(farm_value)
+                if farm is not None:
+                    logger.info(f"Found farm with name {farm_value}, setting ID: {farm.id}")
+                    config.set_setting("defaults.farm_id", farm.id)
+                else:
+                    logger.warning(f"Could not find farm with name: {farm_value}")
+
             self.refresh_from_default_profile()
+            return
+
+        # Handle DefaultQueue property similarly to farm
+        if property_name == "DefaultQueue":
+            queue_value = self.work_station_configuration.farm.default_queue
+            logger.info(f"Queue value: {queue_value}")
+
+            # Check if the queue value is already an ID (starts with "queue-")
+            if queue_value.startswith("queue-"):
+                logger.info(f"Queue value appears to be an ID, setting directly: {queue_value}")
+                config.set_setting("defaults.queue_id", queue_value)
+            else:
+                # It's a name, look it up
+                queue = self.find_queue_by_name(queue_value)
+                if queue is not None:
+                    logger.info(f"Found queue with name {queue_value}, setting ID: {queue.id}")
+                    config.set_setting("defaults.queue_id", queue.id)
+                else:
+                    logger.warning(f"Could not find queue with name: {queue_value}")
             return
 
         self.save_to_file()

@@ -35,6 +35,7 @@ DEFAULT_MIN_CMF_CONFIGURATION: Any = {
 }
 
 DEADLINE_UNREAL_QUEUE_TEST_ROLE = "DeadlineUnrealQueueTestRole"
+DEADLINE_UNREAL_FLEET_TEST_ROLE = "DeadlineUnrealFleetTestRole"
 
 def get_config_var(key: str, default: str) -> str:
     var = os.environ.get(key, default)
@@ -150,7 +151,7 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
                     "Statement": [
                         {
                             "Effect": "Allow",
-                            "Principal": {"Service": credential_vending_service_principal_generator()},
+                            "Principal": {"Service": "credentials.deadline.amazonaws.com"},
                             "Action": "sts:AssumeRole",
                         }
                     ],
@@ -214,7 +215,7 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
         return current_role_arn
 
 @pytest.fixture
-def run_unreal_test(request, reusable_farm_id, reusable_queue_id):
+def run_unreal_test(request, reusable_queue_fleet_association):
     def _run_unreal_test(test_path: str, uproject_file: str, deadlineargs: str=None):
         """
         Runs an Unreal Engine automation test and determines success or failure by analyzing output patterns
@@ -227,6 +228,10 @@ def run_unreal_test(request, reusable_farm_id, reusable_queue_id):
         """
         if deadlineargs is None:
             deadlineargs = "-NoLoadingScreen -FixedSeed -log -Unattended -MRQInstance -deterministicaudio -audiomixer"
+
+        reusable_farm_id, reusable_queue_id, reusable_fleet_id = reusable_queue_fleet_association
+
+        logger.info(f"Running unreal test with farm {reusable_farm_id} queue {reusable_queue_id} fleet {reusable_fleet_id}")
 
         test_params_str = f"-testparams=farm_id={reusable_farm_id};queue_id={reusable_queue_id}"
 
@@ -417,6 +422,117 @@ def reusable_farm_id():
     yield farm_id
 
 @pytest.fixture(scope="session")
+def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.client.BaseClient, reusable_farm_id) -> str:
+    try:
+        response = iam_client.get_role(RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE)
+        return response["Role"]["Arn"]
+    except botocore.exceptions.ClientError as e:
+
+        role_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"Service": "credentials.deadline.amazonaws.com"},
+                    "Action": "sts:AssumeRole",
+                }
+            ],
+        }
+
+        try:
+            # Create the role
+            create_role_response = iam_client.create_role(
+                RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE,
+                Description=DEADLINE_UNREAL_FLEET_TEST_ROLE,
+                AssumeRolePolicyDocument=json.dumps(role_policy)
+            )
+                
+            # Create inline policy
+            policy_document = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:GetLogEvents",
+                        ],
+                        "Resource": "arn:aws:logs:*:*:*:/aws/deadline/*",
+                    },
+                    {
+                        # For synchronizing job attachments
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
+                        "Resource": ["arn:aws:s3:::deadline-test-*"],
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "deadline:AssumeFleetRoleForWorker",
+                            "deadline:UpdateWorker",
+                            "deadline:UpdateWorkerSchedule",
+                            "deadline:BatchGetJobEntity",
+                            "deadline:AssumeQueueRoleForWorker"
+                        ],
+                        "Resource": "*"
+                    },
+                    {
+                        "Sid": "CreateLogStream",
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogStream"
+                        ],
+                        "Resource": f"arn:aws:logs:us-west-2:*:log-group:/aws/deadline/{reusable_farm_id}/*",
+                        "Condition": {
+                            "ForAnyValue:StringEquals": {
+                                "aws:CalledVia": [
+                                    "deadline.amazonaws.com"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "Sid": "ManageLogEvents",
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:PutLogEvents",
+                            "logs:GetLogEvents"
+                        ],
+                        "Resource": f"arn:aws:logs:us-west-2:*:log-group:/aws/deadline/{reusable_farm_id}/*"
+                    }
+                ]
+            }
+                
+            iam_client.put_role_policy(
+                RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE,
+                PolicyName=f"{DEADLINE_UNREAL_FLEET_TEST_ROLE}Policy",
+                PolicyDocument=json.dumps(policy_document)
+            )
+                
+            # IAM changes can take time to propagate
+            import time
+            time.sleep(5)
+                
+            return create_role_response["Role"]["Arn"]
+        except botocore.exceptions.ClientError:
+            # If we can't create the role either, fall back to current role
+            logger.warning("Could not create test role, falling back to current execution role")
+        
+        # For AccessDenied or any other error after failed creation attempts, try current role
+        logger.info("No permission to manage IAM roles, using current execution role")
+        
+        # Get the current execution role using STS
+        caller_identity = sts_client.get_caller_identity()
+        current_role_arn = caller_identity.get("Arn")
+        
+        # Log appropriate message based on whether we're using a role or user
+        if ":assumed-role/" in current_role_arn:
+            logger.info(f"Using current execution role: {current_role_arn}")
+        else:
+            logger.warning("Not running as an IAM role, tests may fail if permissions are insufficient")
+            
+        return current_role_arn
+
+@pytest.fixture(scope="session")
 def reusable_fleet_id(
     worker_id: str,
     deadline_client: BaseClient,
@@ -482,7 +598,7 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str) -> Gen
         farm_id, queue_id = queue
         try:
             # Uncomment to delete queues after tests
-            # deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
+            deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
             delete_farm_resource_log_group_util(farm_id=farm_id, resource_id=queue_id)
         except Exception as e:
             logger.warning(f"Exception occurred while deleting Queue {farm_id} {queue_id}: {str(e)}")
@@ -539,13 +655,8 @@ def reusable_queue_fleet_association(
             fleet_id=reusable_customer_managed_fleet_id,
         )
 
-        delete_queue_fleet_associations_with_failure_cleanup(
-            control_plane_dynamodb_client=control_plane_dynamodb_client,
-            deadline_client=deadline_client,
-            farm_id=reusable_farm_id,
-            queue_id=reusable_queue_id,
-            fleet_id=reusable_customer_managed_fleet_id,
-        )
+        deadline_client.delete_queue_fleet_association(farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id)
+
     except Exception as e:
         print(f"Delete reusable_queue_fleet_association exception {str(e)}")
         pass
