@@ -235,8 +235,9 @@ def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait
     """
     import time
     import datetime
+    import json
 
-    logger.info(f"Monitoring job {job_id} in farm {farm_id}")
+    logger.info(f"Monitoring job {job_id} in farm {farm_id}, queue {queue_id}")
     print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] Starting job monitoring for job {job_id}")
 
     elapsed_time = 0
@@ -253,54 +254,77 @@ def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait
                 jobId=job_id
             )
 
-            status = job_response.get('status')
-            job_details = job_response
-            
-            # Output status at regular intervals
-            if elapsed_time - last_status_output >= status_interval:
-                current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                progress_info = ""
-                
-                # Try to get more detailed progress information if available
-                if 'parameters' in job_response and 'progressPercent' in job_response.get('parameters', {}):
-                    progress = job_response['parameters']['progressPercent']
-                    progress_info = f" - Progress: {progress}%"
-                
-                # Get task information if available
-                tasks_info = ""
-                try:
-                    tasks_response = deadline_client.list_job_entities(
-                        farmId=farm_id,
-                        queueId=queue_id,
-                        jobId=job_id,
-                        type="TASK"
-                    )
-                    
-                    total_tasks = len(tasks_response.get('items', []))
-                    completed_tasks = sum(1 for task in tasks_response.get('items', []) 
-                                         if task.get('status') in ["SUCCEEDED", "FAILED", "CANCELED"])
-                    
-                    tasks_info = f" - Tasks: {completed_tasks}/{total_tasks} completed"
-                except Exception:
-                    # If we can't get task info, just continue without it
-                    pass
-                
-                print(f"[{current_time}] Job {job_id} status: {status}{progress_info}{tasks_info} (Elapsed: {elapsed_time}s)")
-                last_status_output = elapsed_time
-                
-            logger.info(f"Job {job_id} status: {status}")
+            # Debug: Print the full response structure
+            if elapsed_time == 0 or elapsed_time - last_status_output >= status_interval:
+                logger.debug(f"Job response: {json.dumps(job_response, default=str)}")
 
-            # Check if job completed
-            if status == "SUCCEEDED":
-                current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                print(f"[{current_time}] Job {job_id} completed successfully!")
-                logger.info(f"Job {job_id} completed successfully!")
-                return True, status, f"Job {job_id} completed successfully"
-            elif status in ["FAILED", "CANCELED"]:
-                current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                print(f"[{current_time}] Job {job_id} ended with status: {status}")
-                logger.error(f"Job {job_id} ended with status: {status}")
-                return False, status, f"Job {job_id} failed with status: {status}"
+            # Extract status - handle different response formats
+            if isinstance(job_response, dict):
+                status = job_response.get('status')
+                job_details = job_response
+                
+                # If status is None, try to find it in a different location in the response
+                if status is None and 'job' in job_response:
+                    status = job_response['job'].get('status')
+                
+                # Output status at regular intervals
+                if elapsed_time - last_status_output >= status_interval:
+                    current_time = datetime.datetime.now().strftime('%H:%M:%S')
+                    progress_info = ""
+                    
+                    # Try to get more detailed progress information if available
+                    if 'parameters' in job_response and 'progressPercent' in job_response.get('parameters', {}):
+                        progress = job_response['parameters']['progressPercent']
+                        progress_info = f" - Progress: {progress}%"
+                    elif 'job' in job_response and 'parameters' in job_response.get('job', {}) and 'progressPercent' in job_response.get('job', {}).get('parameters', {}):
+                        progress = job_response['job']['parameters']['progressPercent']
+                        progress_info = f" - Progress: {progress}%"
+                    
+                    # Get task information if available
+                    tasks_info = ""
+                    try:
+                        tasks_response = deadline_client.list_job_entities(
+                            farmId=farm_id,
+                            queueId=queue_id,
+                            jobId=job_id,
+                            type="TASK"
+                        )
+                        
+                        if 'items' in tasks_response:
+                            total_tasks = len(tasks_response.get('items', []))
+                            completed_tasks = sum(1 for task in tasks_response.get('items', []) 
+                                                if task.get('status') in ["SUCCEEDED", "FAILED", "CANCELED"])
+                            
+                            tasks_info = f" - Tasks: {completed_tasks}/{total_tasks} completed"
+                    except Exception as e:
+                        # If we can't get task info, just continue without it
+                        logger.debug(f"Error getting task info: {str(e)}")
+                        pass
+                    
+                    # If status is still None, print the response structure to help debug
+                    if status is None:
+                        print(f"[{current_time}] Job {job_id} status: Unknown - Response structure: {json.dumps(job_response, default=str)[:200]}... (Elapsed: {elapsed_time}s)")
+                    else:
+                        print(f"[{current_time}] Job {job_id} status: {status}{progress_info}{tasks_info} (Elapsed: {elapsed_time}s)")
+                    
+                    last_status_output = elapsed_time
+                    
+                logger.info(f"Job {job_id} status: {status}")
+
+                # Check if job completed
+                if status == "SUCCEEDED":
+                    current_time = datetime.datetime.now().strftime('%H:%M:%S')
+                    print(f"[{current_time}] Job {job_id} completed successfully!")
+                    logger.info(f"Job {job_id} completed successfully!")
+                    return True, status, f"Job {job_id} completed successfully"
+                elif status in ["FAILED", "CANCELED"]:
+                    current_time = datetime.datetime.now().strftime('%H:%M:%S')
+                    print(f"[{current_time}] Job {job_id} ended with status: {status}")
+                    logger.error(f"Job {job_id} ended with status: {status}")
+                    return False, status, f"Job {job_id} failed with status: {status}"
+            else:
+                logger.warning(f"Unexpected response format: {type(job_response)}")
+                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Unexpected response format: {type(job_response)}")
 
             # Wait before checking again
             time.sleep(wait_interval)
