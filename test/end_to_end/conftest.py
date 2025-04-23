@@ -80,8 +80,59 @@ def delete_farm_resource_log_group_util(
     try:
         cwl_client.put_retention_policy(logGroupName=log_group_name, retentionInDays=retention_number_of_days)
     except Exception as e:
-        print(f"put_retention_policy exception {str(e)}")
+        logger.warning(f"put_retention_policy exception {str(e)}")
         pass
+
+def cancel_pending_jobs(deadline_client, farm_id, queue_id):
+    """
+    Cancel any jobs in the queue that are in a pending or running state.
+    
+    Args:
+        deadline_client: Boto3 Deadline client
+        farm_id: The farm ID
+        queue_id: The queue ID to clean up
+    """
+    try:
+        # List all jobs in the queue
+        logger.info(f"Checking for pending jobs in queue {queue_id}...")
+        response = deadline_client.list_jobs(farmId=farm_id, queueId=queue_id)
+        jobs = response.get("jobs", response.get("items", []))
+        
+        # States that need cancellation
+        active_states = ["PENDING", "READY", "ASSIGNED", "STARTING", "SCHEDULED", "RUNNING"]
+        jobs_to_cancel = []
+        
+        for job in jobs:
+            job_id = job.get("jobId")
+            status = job.get("status")
+            
+            if status in active_states:
+                logger.info(f"Found active job {job_id} with status {status} - will cancel")
+                jobs_to_cancel.append(job_id)
+        
+        # Cancel any active jobs
+        for job_id in jobs_to_cancel:
+            try:
+                logger.info(f"Canceling job {job_id}...")
+                deadline_client.update_job(
+                    farmId=farm_id,
+                    queueId=queue_id,
+                    jobId=job_id,
+                    status="CANCELED"
+                )
+                logger.info(f"✓ Successfully canceled job {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to cancel job {job_id}: {str(e)}")
+        
+        if not jobs_to_cancel:
+            logger.info(f"No active jobs found in queue {queue_id}")
+        else:
+            logger.info(f"Canceled {len(jobs_to_cancel)} active jobs in queue {queue_id}")
+            
+    except Exception as e:
+        logger.warning(f"Error checking for jobs to cancel: {str(e)}")
+        import traceback
+        logger.warning(f"Traceback: {traceback.format_exc()}")
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -774,78 +825,74 @@ def reusable_fleet_id(
     worker_role_arn: str,
     request
 ) -> Generator[str, None, None]:
+    fleet_id = None
+    fleet_response = None
+    created_new = False
+    
     # First check if a test fleet already exists
     try:
         # List fleets in the farm
         logger.info(f"Checking for existing test fleets in farm {reusable_farm_id}...")
         response = deadline_client.list_fleets(farmId=reusable_farm_id)
         
-        # Debug: Log the raw response structure
-        logger.info(f"API Response keys: {list(response.keys())}")
-        
         # The API might return 'fleets' or 'items' depending on the version
         fleets = response.get("fleets", response.get("items", []))
         logger.info(f"Found {len(fleets)} fleets in farm {reusable_farm_id}")
         
         for fleet in fleets:
-            # Debug: Log each fleet's display name
+            # Check if this is our test fleet
             fleet_id = fleet.get("fleetId", "unknown")
             display_name = fleet.get("displayName", "unknown")
-            logger.info(f"Found fleet: {fleet_id} with display name: '{display_name}'")
             
-            # Check if this is our test fleet
             if display_name == "test-reusable-customer-managed-fleet":
                 logger.info(f"✓ Found existing test fleet: {fleet_id} in farm {reusable_farm_id}")
                 logger.info(f"REUSING EXISTING FLEET: {fleet_id} in farm {reusable_farm_id}")
-                yield fleet_id
+                fleet_response = fleet
+                break
                 
-                # Only clean up if --cleanup flag is provided
-                if request.config.getoption("--cleanup"):
-                    logger.info(f"Cleaning up fleet {fleet_id} in farm {reusable_farm_id}")
-                    try:
-                        # Get the fleet details for delete_fleets_util
-                        fleet_response = deadline_client.get_fleet(farmId=reusable_farm_id, fleetId=fleet_id)
-                        delete_fleets_util(deadline_client, [fleet_response])
-                        logger.info(f"✓ Successfully deleted fleet {fleet_id}")
-                    except Exception as e:
-                        logger.warning(f"Exception during fleet cleanup: {str(e)}")
-                else:
-                    logger.info(f"Skipping fleet cleanup (use --cleanup to clean up resources)")
-                return
-                
-        logger.info(f"No existing test fleet found in farm {reusable_farm_id}")
+        if not fleet_id or not fleet_response:
+            logger.info(f"No existing test fleet found in farm {reusable_farm_id}")
+            
+            # Create a new fleet if none exists
+            logger.info(f"Creating new test fleet in farm {reusable_farm_id}...")
+            fleet_response = create_fleet_util(
+                deadline_client,
+                worker_role_arn,
+                displayName="test-reusable-customer-managed-fleet",
+                farmId=reusable_farm_id,
+                configuration=DEFAULT_MIN_CMF_CONFIGURATION,
+                maxWorkerCount=100,
+            )
+            fleet_id = fleet_response["fleetId"]
+            created_new = True
+            logger.info(f"✓ Created new test fleet: {fleet_id} in farm {reusable_farm_id}")
+            logger.info(f"CREATED NEW FLEET: {fleet_id} in farm {reusable_farm_id}")
+            
+            # Wait for the fleet to be ready
+            logger.info(f"Waiting for fleet {fleet_id} to become active...")
+            time.sleep(30)
+            logger.info(f"Fleet {fleet_id} should now be active")
     except Exception as e:
         logger.warning(f"Error checking for existing fleets: {str(e)}")
         logger.warning(f"Exception details: {type(e).__name__}")
         import traceback
         logger.warning(f"Traceback: {traceback.format_exc()}")
-    
-    # Create a new fleet if none exists
-    logger.info(f"Creating new test fleet in farm {reusable_farm_id}...")
-    response = create_fleet_util(
-        deadline_client,
-        worker_role_arn,
-        displayName="test-reusable-customer-managed-fleet",
-        farmId=reusable_farm_id,
-        configuration=DEFAULT_MIN_CMF_CONFIGURATION,
-        maxWorkerCount=100,
-    )
-    fleet_id = response["fleetId"]
-    logger.info(f"✓ Created new test fleet: {fleet_id} in farm {reusable_farm_id}")
-    logger.info(f"CREATED NEW FLEET: {fleet_id} in farm {reusable_farm_id}")
-    
-    # Wait for the fleet to be ready
-    logger.info(f"Waiting for fleet {fleet_id} to become active...")
-    time.sleep(30)
-    logger.info(f"Fleet {fleet_id} should now be active")
+        raise
 
+    # Yield the fleet ID for the test to use
     yield fleet_id
 
-    # Only clean up if --cleanup flag is provided
+    # Only clean up if --cleanup flag is provided or if we created a new fleet
     if request.config.getoption("--cleanup"):
         logger.info(f"Cleaning up fleet {fleet_id} in farm {reusable_farm_id}")
-        delete_fleets_util(deadline_client, [response])
-        logger.info(f"✓ Successfully deleted fleet {fleet_id}")
+        try:
+            # If we didn't create a new fleet, we need to get the fleet details for delete_fleets_util
+            if not created_new:
+                fleet_response = deadline_client.get_fleet(farmId=reusable_farm_id, fleetId=fleet_id)
+            delete_fleets_util(deadline_client, [fleet_response])
+            logger.info(f"✓ Successfully deleted fleet {fleet_id}")
+        except Exception as e:
+            logger.warning(f"Exception during fleet cleanup: {str(e)}")
     else:
         logger.info(f"Skipping fleet cleanup (use --cleanup to clean up resources)")
 
@@ -863,6 +910,11 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reques
                 # Check if this is our test queue
                 if queue.get("displayName") == "unreal-test-queue":
                     logger.info(f"✓ Found existing test queue: {queue['queueId']} in farm {farm_id}")
+                    
+                    # Cancel any pending jobs in the queue
+                    logger.info(f"Checking for pending jobs in queue {queue['queueId']}...")
+                    cancel_pending_jobs(deadline_client, farm_id, queue['queueId'])
+                    
                     return queue
             logger.info(f"No existing test queue found in farm {farm_id}")
             return None
@@ -1122,6 +1174,8 @@ def reusable_queue_fleet_association(
     reusable_fleet_id: str,
     request
 ) -> Generator[Tuple[str, str, str], None, None]:
+    association_exists = False
+    
     # Check if association already exists
     try:
         logger.info(f"Checking if queue-fleet association exists between queue {reusable_queue_id} and fleet {reusable_fleet_id}...")
@@ -1132,6 +1186,7 @@ def reusable_queue_fleet_association(
         )
         logger.info(f"✓ Found existing queue-fleet association between queue {reusable_queue_id} and fleet {reusable_fleet_id}")
         logger.info(f"REUSING EXISTING QUEUE-FLEET ASSOCIATION: queue {reusable_queue_id} and fleet {reusable_fleet_id}")
+        association_exists = True
     except Exception as e:
         # Create new association if it doesn't exist
         logger.info(f"No existing queue-fleet association found. Creating new association between queue {reusable_queue_id} and fleet {reusable_fleet_id}...")
