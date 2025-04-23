@@ -23,8 +23,8 @@ def setup_logging():
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     
-    # Create formatter
-    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    # Create formatter with timestamp
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s', datefmt='%H:%M:%S')
     console_handler.setFormatter(formatter)
     
     # Add handler to logger
@@ -324,11 +324,11 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
         expected_states = ["SUCCEEDED"]
 
     logger.info(f"Monitoring job {job_id} in farm {farm_id}, queue {queue_id} for state(s) {expected_states}")
-    print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] Starting job monitoring for job {job_id} for state(s) {expected_states}")
 
     elapsed_time = 0
     status = None
     last_status_output = 0
+    last_logged_status = None
 
     while elapsed_time < max_wait_time:
         try:
@@ -350,8 +350,6 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
 
             # Output status at regular intervals
             if elapsed_time - last_status_output >= status_interval:
-                current_time = datetime.datetime.now().strftime('%H:%M:%S')
-
                 # Get task information if available from taskRunStatusCounts
                 tasks_info = ""
                 if 'taskRunStatusCounts' in job_response:
@@ -360,21 +358,22 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
                     completed_tasks = sum(status_counts.get(status, 0) for status in ["SUCCEEDED", "FAILED", "CANCELED"])
                     tasks_info = f" - Tasks: {completed_tasks}/{total_tasks} completed"
 
-                # If status is still None, print the response keys to help debug
+                # If status is still None, log the response keys to help debug
                 if status is None:
-                    print(f"[{current_time}] Job {job_id} status: Unknown - Response keys: {list(job_response.keys())} (Elapsed: {elapsed_time}s)")
+                    logger.info(f"Job {job_id} status: Unknown - Response keys: {list(job_response.keys())} (Elapsed: {elapsed_time}s)")
                     logger.debug(f"Full response: {json.dumps(job_response, default=str)}")
                 else:
-                    print(f"[{current_time}] Job {job_id} status: {status}{tasks_info} (Elapsed: {elapsed_time}s)")
+                    logger.info(f"Job {job_id} status: {status}{tasks_info} (Elapsed: {elapsed_time}s)")
 
                 last_status_output = elapsed_time
-
-            logger.info(f"Job {job_id} status: {status}")
+                last_logged_status = status
+            # Only log status changes to avoid duplicate log entries
+            elif status != last_logged_status:
+                logger.info(f"Job {job_id} status changed: {status}")
+                last_logged_status = status
 
             # Check if job reached expected state
             if status in expected_states:
-                current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                print(f"[{current_time}] Job {job_id} reached expected state: {status}")
                 logger.info(f"Job {job_id} reached expected state: {status}")
                 return True, status, f"Job {job_id} reached expected state: {status}"
 
@@ -384,14 +383,10 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
 
         except Exception as e:
             error_msg = f"Error checking job status: {str(e)}"
-            current_time = datetime.datetime.now().strftime('%H:%M:%S')
-            print(f"[{current_time}] {error_msg}")
             logger.error(error_msg)
             return False, "ERROR", error_msg
 
     timeout_msg = f"Timeout waiting for job {job_id} to reach state(s) {expected_states}. Last status: {status}"
-    current_time = datetime.datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] {timeout_msg}")
     logger.warning(timeout_msg)
     return False, status, timeout_msg
 
@@ -412,24 +407,33 @@ def extract_job_info_from_test_output(output_lines):
     farm_id = None
     queue_id = None
 
+    # Use sets to track which IDs we've already logged to avoid duplicates
+    logged_ids = set()
+
     for line in output_lines:
         # Look for the job ID in the log message
         job_id_match = re.search(r"Found job creation log message with job ID: (job-[a-zA-Z0-9]+)", line)
         if job_id_match:
             job_id = job_id_match.group(1)
-            logger.info(f"Extracted job ID: {job_id}")
+            if job_id not in logged_ids:
+                logger.info(f"Extracted job ID: {job_id}")
+                logged_ids.add(job_id)
 
         # Look for farm ID in the output
         farm_id_match = re.search(r"farm_id=([a-zA-Z0-9-]+)", line)
         if farm_id_match:
             farm_id = farm_id_match.group(1)
-            logger.info(f"Extracted farm ID: {farm_id}")
+            if farm_id not in logged_ids:
+                logger.info(f"Extracted farm ID: {farm_id}")
+                logged_ids.add(farm_id)
 
         # Look for queue ID in the output
         queue_id_match = re.search(r"queue_id=([a-zA-Z0-9-]+)", line)
         if queue_id_match:
             queue_id = queue_id_match.group(1)
-            logger.info(f"Extracted queue ID: {queue_id}")
+            if queue_id not in logged_ids:
+                logger.info(f"Extracted queue ID: {queue_id}")
+                logged_ids.add(queue_id)
 
     return job_id, farm_id, queue_id
 
