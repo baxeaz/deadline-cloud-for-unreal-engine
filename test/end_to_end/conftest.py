@@ -553,7 +553,8 @@ def session() -> boto3.Session:
 def deadline_client(
     session: boto3.Session
 ) -> botocore.client.BaseClient:
-    client = session.client("deadline")
+    client = session.client("deadline", region_name=TEST_TARGET_REGION)
+    logger.info(f"Created deadline client for region {TEST_TARGET_REGION}")
     return client
 
 def create_fleet_util(
@@ -778,12 +779,24 @@ def reusable_fleet_id(
         # List fleets in the farm
         logger.info(f"Checking for existing test fleets in farm {reusable_farm_id}...")
         response = deadline_client.list_fleets(farmId=reusable_farm_id)
-        for fleet in response.get("items", []):
+        
+        # Debug: Log the raw response structure
+        logger.info(f"API Response keys: {list(response.keys())}")
+        
+        # The API might return 'fleets' or 'items' depending on the version
+        fleets = response.get("fleets", response.get("items", []))
+        logger.info(f"Found {len(fleets)} fleets in farm {reusable_farm_id}")
+        
+        for fleet in fleets:
+            # Debug: Log each fleet's display name
+            fleet_id = fleet.get("fleetId", "unknown")
+            display_name = fleet.get("displayName", "unknown")
+            logger.info(f"Found fleet: {fleet_id} with display name: '{display_name}'")
+            
             # Check if this is our test fleet
-            if fleet.get("displayName") == "test-reusable-customer-managed-fleet":
-                logger.info(f"✓ Found existing test fleet: {fleet['fleetId']} in farm {reusable_farm_id}")
-                logger.info(f"REUSING EXISTING FLEET: {fleet['fleetId']} in farm {reusable_farm_id}")
-                fleet_id = fleet["fleetId"]
+            if display_name == "test-reusable-customer-managed-fleet":
+                logger.info(f"✓ Found existing test fleet: {fleet_id} in farm {reusable_farm_id}")
+                logger.info(f"REUSING EXISTING FLEET: {fleet_id} in farm {reusable_farm_id}")
                 yield fleet_id
                 
                 # Only clean up if --cleanup flag is provided
@@ -799,9 +812,13 @@ def reusable_fleet_id(
                 else:
                     logger.info(f"Skipping fleet cleanup (use --cleanup to clean up resources)")
                 return
+                
         logger.info(f"No existing test fleet found in farm {reusable_farm_id}")
     except Exception as e:
         logger.warning(f"Error checking for existing fleets: {str(e)}")
+        logger.warning(f"Exception details: {type(e).__name__}")
+        import traceback
+        logger.warning(f"Traceback: {traceback.format_exc()}")
     
     # Create a new fleet if none exists
     logger.info(f"Creating new test fleet in farm {reusable_farm_id}...")
