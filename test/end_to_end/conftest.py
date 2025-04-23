@@ -498,8 +498,9 @@ def run_unreal_test(request, reusable_queue_fleet_association):
 
         # Process and display output in real-time
         for line in process.stdout:
-            # Print to console in real-time
-            print(line, end='')
+            # Print to console in real-time (keeping this for immediate feedback)
+            sys.stdout.write(line)
+            sys.stdout.flush()
             # Store for later analysis
             full_output.append(line)
 
@@ -544,7 +545,7 @@ def build_plugin(request):
     # rather than importing and running the methods directly to simulate how customers will execute it
 
     if request.config.getoption("--nobuild"):
-        print(f"Skipping build_plugin")
+        logger.info("Skipping build_plugin")
         return
 
     # build_plugin.py lives in the scripts subfolder relative to the root of the repository
@@ -559,12 +560,12 @@ def build_plugin(request):
     passthrough_args = ["--ueversion"]
 
     for arg in passthrough_args:
-        print(f"Checking arg {arg}")
+        logger.debug(f"Checking arg {arg}")
         if request.config.getoption(arg):
-            print(f"Found arg {arg}: {request.config.getoption(arg)}")
+            logger.debug(f"Found arg {arg}: {request.config.getoption(arg)}")
             build_args.append(f"{arg}={request.config.getoption(arg)}" if arg.startswith("--") else arg)
         else:
-            print(f"Arg {arg} not present")
+            logger.debug(f"Arg {arg} not present")
 
     # Run the script and capture the output
     result = subprocess.run(build_args, text=True)
@@ -579,7 +580,7 @@ def create_readonly_test_project(request):
     # Create a directory with a unique name under the project base folder
     # Using a default temporary directory will cause Unreal build failures
     temp_dir = tempfile.TemporaryDirectory(dir=project_base).name
-    print(f"Created project folder: {temp_dir}")
+    logger.info(f"Created project folder: {temp_dir}")
 
     engine_root = find_engine_root(request.config.getoption("--ueversion"))
     # Source path for the template
@@ -592,7 +593,7 @@ def create_readonly_test_project(request):
 
     # Recursively copy the directory
     shutil.copytree(source_path, dest_path)
-    print(f"Created project dir {dest_path}")
+    logger.info(f"Created project dir {dest_path}")
 
     # Add our plugins
     project_path = os.path.join(dest_path, "TP_DMXBP.uproject")
@@ -850,7 +851,6 @@ def reusable_fleet_id(
             
             if display_name == "test-reusable-customer-managed-fleet":
                 logger.info(f"✓ Found existing test fleet: {fleet_id} in farm {reusable_farm_id}")
-                logger.info(f"REUSING EXISTING FLEET: {fleet_id} in farm {reusable_farm_id}")
                 fleet_response = fleet
                 break
                 
@@ -870,7 +870,6 @@ def reusable_fleet_id(
             fleet_id = fleet_response["fleetId"]
             created_new = True
             logger.info(f"✓ Created new test fleet: {fleet_id} in farm {reusable_farm_id}")
-            logger.info(f"CREATED NEW FLEET: {fleet_id} in farm {reusable_farm_id}")
             
             # Wait for the fleet to be ready
             logger.info(f"Waiting for fleet {fleet_id} to become active...")
@@ -971,7 +970,6 @@ def reusable_queue_id(
     request
 ) -> str:
     queue = create_queue_helper(farm_id=reusable_farm_id)
-    logger.info(f"USING QUEUE: {queue['queueId']} in farm {reusable_farm_id}")
     return queue["queueId"]
  
 
@@ -1073,9 +1071,8 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
     except (subprocess.SubprocessError, FileNotFoundError):
         pytest.skip("deadline-worker-agent not found on PATH. Skipping worker agent tests.")
 
-    current_time = datetime.datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] Starting deadline-worker-agent with farm ID: {reusable_farm_id}, fleet ID: {reusable_fleet_id}")
-    print(f"[{current_time}] Using agent at: {agent_path}")
+    logger.info(f"Starting deadline-worker-agent with farm ID: {reusable_farm_id}, fleet ID: {reusable_fleet_id}")
+    logger.info(f"Using agent at: {agent_path}")
 
     # Create a log file for the worker agent
     log_dir = os.path.join(os.getcwd(), "logs")
@@ -1098,8 +1095,8 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
     env["TERM"] = "dumb"  # Disable terminal features
     env["NO_COLOR"] = "1"  # Disable color output
 
-    print(f"[{current_time}] Starting worker agent with command: {' '.join(cmd)}")
-    print(f"[{current_time}] Worker agent logs will be written to: {log_file}")
+    logger.info(f"Starting worker agent with command: {' '.join(cmd)}")
+    logger.info(f"Worker agent logs will be written to: {log_file}")
 
     # Use different process creation flags based on platform
     if platform.system() == "Windows":
@@ -1136,15 +1133,14 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
         error_msg = f"Worker agent failed to start: exit code {process.returncode}\nLog content: {log_content}"
         pytest.fail(error_msg)
 
-    print(f"[{current_time}] Worker agent started successfully with PID: {process.pid}")
-    print(f"[{current_time}] To view worker agent logs, check: {log_file}")
+    logger.info(f"Worker agent started successfully with PID: {process.pid}")
+    logger.info(f"To view worker agent logs, check: {log_file}")
 
     # Return the process and log file to the test
     yield process, log_file
 
     # Cleanup: terminate the worker agent process
-    current_time = datetime.datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] Stopping deadline-worker-agent (PID: {process.pid})")
+    logger.info(f"Stopping deadline-worker-agent (PID: {process.pid})")
 
     try:
         if platform.system() == "Windows":
@@ -1166,9 +1162,9 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
                 # Force kill if it doesn't respond to SIGTERM
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except Exception as e:
-        print(f"[{current_time}] Error stopping worker agent: {str(e)}")
+        logger.error(f"Error stopping worker agent: {str(e)}")
 
-    print(f"[{current_time}] Worker agent stopped")
+    logger.info("Worker agent stopped")
 
 @pytest.fixture(scope="session")
 def reusable_queue_fleet_association(
@@ -1189,7 +1185,6 @@ def reusable_queue_fleet_association(
             fleetId=reusable_fleet_id
         )
         logger.info(f"✓ Found existing queue-fleet association between queue {reusable_queue_id} and fleet {reusable_fleet_id}")
-        logger.info(f"REUSING EXISTING QUEUE-FLEET ASSOCIATION: queue {reusable_queue_id} and fleet {reusable_fleet_id}")
         association_exists = True
     except Exception as e:
         # Create new association if it doesn't exist
@@ -1198,7 +1193,6 @@ def reusable_queue_fleet_association(
             farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id
         )
         logger.info(f"✓ Created new queue-fleet association between queue {reusable_queue_id} and fleet {reusable_fleet_id}")
-        logger.info(f"CREATED NEW QUEUE-FLEET ASSOCIATION: queue {reusable_queue_id} and fleet {reusable_fleet_id}")
 
     yield reusable_farm_id, reusable_queue_id, reusable_fleet_id
 
