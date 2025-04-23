@@ -258,7 +258,10 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
                             # For synchronizing job attachments
                             "Effect": "Allow",
                             "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
-                            "Resource": ["arn:aws:s3:::deadline-test-*"],
+                            "Resource": [
+                                "arn:aws:s3:::deadline-unreal-test-*",
+                                "arn:aws:s3:::deadline-unreal-test-*/*"  # For operations on objects within the bucket
+                            ],
                         }
                     ]
                 }
