@@ -58,6 +58,8 @@ DEFAULT_MIN_CMF_CONFIGURATION: Any = {
 
 DEADLINE_UNREAL_QUEUE_TEST_ROLE = "DeadlineUnrealQueueTestRole"
 DEADLINE_UNREAL_FLEET_TEST_ROLE = "DeadlineUnrealFleetTestRole"
+DEADLINE_UNREAL_TEST_QUEUE_NAME = "deadline-unreal-test-queue"
+DEADLINE_UNREAL_TEST_FLEET_NAME = "deadline-unreal-test-fleet"
 
 def get_config_var(key: str, default: str) -> str:
     var = os.environ.get(key, default)
@@ -774,6 +776,7 @@ def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore
 
         try:
             # Create the role
+            logger.info(f"Creating IAM role: {DEADLINE_UNREAL_FLEET_TEST_ROLE}")
             create_role_response = iam_client.create_role(
                 RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE,
                 Description=DEADLINE_UNREAL_FLEET_TEST_ROLE,
@@ -954,7 +957,7 @@ def reusable_fleet_id(
             fleet_id = fleet.get("fleetId", "unknown")
             display_name = fleet.get("displayName", "unknown")
             
-            if display_name == "test-reusable-customer-managed-fleet":
+            if display_name == DEADLINE_UNREAL_TEST_FLEET_NAME:
                 logger.info(f"✓ Found existing test fleet: {fleet_id} in farm {reusable_farm_id}")
                 fleet_response = fleet
                 break
@@ -967,7 +970,7 @@ def reusable_fleet_id(
             fleet_response = create_fleet_util(
                 deadline_client,
                 worker_role_arn,
-                displayName="test-reusable-customer-managed-fleet",
+                displayName=DEADLINE_UNREAL_TEST_FLEET_NAME,
                 farmId=reusable_farm_id,
                 configuration=DEFAULT_MIN_CMF_CONFIGURATION,
                 maxWorkerCount=100,
@@ -1014,9 +1017,9 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reusab
             # List queues in the farm
             logger.info(f"Checking for existing test queues in farm {farm_id}...")
             response = deadline_client.list_queues(farmId=farm_id)
-            for queue in response.get("items", []):
+            for queue in response.get("queues", response.get("items", [])):
                 # Check if this is our test queue
-                if queue.get("displayName") == "unreal-test-queue":
+                if queue.get("displayName") == DEADLINE_UNREAL_TEST_QUEUE_NAME:
                     logger.info(f"✓ Found existing test queue: {queue['queueId']} in farm {farm_id}")
                     
                     # Cancel any pending jobs in the queue
@@ -1052,7 +1055,7 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reusab
         
         response = deadline_client.create_queue(
             farmId=farm_id,
-            displayName="unreal-test-queue",
+            displayName=DEADLINE_UNREAL_TEST_QUEUE_NAME,
             roleArn=queue_role_arn,
             jobAttachmentSettings=job_attachment_settings,
             jobRunAsUser=job_run_as_user or {"posix": {"user": "", "group": ""}, "runAs": "WORKER_AGENT_USER"},

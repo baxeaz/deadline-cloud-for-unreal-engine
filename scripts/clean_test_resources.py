@@ -23,8 +23,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-TEST_QUEUE_NAME = "unreal-test-queue"
-TEST_FLEET_NAME = "test-reusable-customer-managed-fleet"
+DEADLINE_UNREAL_QUEUE_TEST_ROLE = "DeadlineUnrealQueueTestRole"
+DEADLINE_UNREAL_FLEET_TEST_ROLE = "DeadlineUnrealFleetTestRole"
+DEADLINE_UNREAL_TEST_QUEUE_NAME = "deadline-unreal-test-queue"
+DEADLINE_UNREAL_TEST_FLEET_NAME = "deadline-unreal-test-fleet"
 
 def wait_for_qfa_stopped_status(deadline_client, farm_id, queue_id, fleet_id, max_wait_seconds=60):
     """
@@ -123,6 +125,7 @@ def cleanup_resources(farm_id, dry_run=False):
 
     # Create AWS clients
     deadline_client = boto3.client('deadline')
+    iam_client = boto3.client('iam')
 
     # Step 1: Find all test queues
     test_queues = []
@@ -130,7 +133,7 @@ def cleanup_resources(farm_id, dry_run=False):
         paginator = deadline_client.get_paginator('list_queues')
         for page in paginator.paginate(farmId=farm_id):
             for queue in page.get('queues', []):
-                if queue.get('displayName') == TEST_QUEUE_NAME:
+                if queue.get('displayName') == DEADLINE_UNREAL_TEST_QUEUE_NAME:
                     test_queues.append(queue)
 
         logger.info(f"Found {len(test_queues)} test queues")
@@ -143,7 +146,7 @@ def cleanup_resources(farm_id, dry_run=False):
         paginator = deadline_client.get_paginator('list_fleets')
         for page in paginator.paginate(farmId=farm_id):
             for fleet in page.get('fleets', []):
-                if fleet.get('displayName') == TEST_FLEET_NAME:
+                if fleet.get('displayName') == DEADLINE_UNREAL_TEST_FLEET_NAME:
                     test_fleets.append(fleet)
 
         logger.info(f"Found {len(test_fleets)} test fleets")
@@ -239,6 +242,75 @@ def cleanup_resources(farm_id, dry_run=False):
                 logger.error(f"Error deleting fleet {fleet_id}: {e}")
 
     logger.info("Cleanup completed")
+    
+    # Step 6: Delete IAM roles
+    logger.info("Checking for test IAM roles...")
+    
+    # Delete queue test role
+    try:
+        # First check if the role exists
+        try:
+            iam_client.get_role(RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE)
+            role_exists = True
+        except iam_client.exceptions.NoSuchEntityException:
+            role_exists = False
+            
+        if role_exists:
+            logger.info(f"Found test queue role: {DEADLINE_UNREAL_QUEUE_TEST_ROLE}")
+            
+            if not dry_run:
+                # First delete any inline policies
+                try:
+                    policy_name = f"{DEADLINE_UNREAL_QUEUE_TEST_ROLE}Policy"
+                    iam_client.delete_role_policy(
+                        RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE,
+                        PolicyName=policy_name
+                    )
+                    logger.info(f"Deleted inline policy {policy_name} from role {DEADLINE_UNREAL_QUEUE_TEST_ROLE}")
+                except Exception as e:
+                    logger.warning(f"Error deleting inline policy from queue role: {e}")
+                
+                # Then delete the role
+                iam_client.delete_role(RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE)
+                logger.info(f"Deleted queue test role: {DEADLINE_UNREAL_QUEUE_TEST_ROLE}")
+        else:
+            logger.info(f"Queue test role {DEADLINE_UNREAL_QUEUE_TEST_ROLE} not found")
+    except Exception as e:
+        logger.error(f"Error deleting queue test role: {e}")
+    
+    # Delete fleet test role
+    try:
+        # First check if the role exists
+        try:
+            iam_client.get_role(RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE)
+            role_exists = True
+        except iam_client.exceptions.NoSuchEntityException:
+            role_exists = False
+            
+        if role_exists:
+            logger.info(f"Found test fleet role: {DEADLINE_UNREAL_FLEET_TEST_ROLE}")
+            
+            if not dry_run:
+                # First delete any inline policies
+                try:
+                    policy_name = f"{DEADLINE_UNREAL_FLEET_TEST_ROLE}Policy"
+                    iam_client.delete_role_policy(
+                        RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE,
+                        PolicyName=policy_name
+                    )
+                    logger.info(f"Deleted inline policy {policy_name} from role {DEADLINE_UNREAL_FLEET_TEST_ROLE}")
+                except Exception as e:
+                    logger.warning(f"Error deleting inline policy from fleet role: {e}")
+                
+                # Then delete the role
+                iam_client.delete_role(RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE)
+                logger.info(f"Deleted fleet test role: {DEADLINE_UNREAL_FLEET_TEST_ROLE}")
+        else:
+            logger.info(f"Fleet test role {DEADLINE_UNREAL_FLEET_TEST_ROLE} not found")
+    except Exception as e:
+        logger.error(f"Error deleting fleet test role: {e}")
+    
+    logger.info("IAM role cleanup completed")
     return True
 
 def main():
