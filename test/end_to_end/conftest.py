@@ -75,6 +75,12 @@ def pytest_addoption(parser):
         default=None,
         help="Specify Unreal Engine version (e.g. 5.4)"
     )
+    parser.addoption(
+        "--cleanup", 
+        action="store_true", 
+        default=False, 
+        help="Clean up resources (queues, fleets, associations) after tests"
+    )
 
 def get_source_root() -> str:
     """
@@ -744,7 +750,22 @@ def reusable_fleet_id(
     deadline_client: BaseClient,
     reusable_farm_id: str,
     worker_role_arn: str,
+    request
 ) -> Generator[str, None, None]:
+    # First check if a test fleet already exists
+    try:
+        # List fleets in the farm
+        response = deadline_client.list_fleets(farmId=reusable_farm_id)
+        for fleet in response.get("items", []):
+            # Check if this is our test fleet
+            if fleet.get("displayName") == "test-reusable-customer-managed-fleet":
+                logger.info(f"Found existing test fleet: {fleet['fleetId']} in farm {reusable_farm_id}")
+                yield fleet["fleetId"]
+                return
+    except Exception as e:
+        logger.warning(f"Error checking for existing fleets: {str(e)}")
+    
+    # Create a new fleet if none exists
     response = create_fleet_util(
         deadline_client,
         worker_role_arn,
@@ -758,11 +779,16 @@ def reusable_fleet_id(
 
     yield response["fleetId"]
 
-    delete_fleets_util(deadline_client, [response])
+    # Only clean up if --cleanup flag is provided
+    if request.config.getoption("--cleanup"):
+        logger.info(f"Cleaning up fleet {response['fleetId']} in farm {reusable_farm_id}")
+        delete_fleets_util(deadline_client, [response])
+    else:
+        logger.info(f"Skipping fleet cleanup (use --cleanup to clean up resources)")
 
 
 @pytest.fixture(scope="session")
-def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str) -> Generator[Any, None, None]:
+def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, request) -> Generator[Any, None, None]:
     queues: List[Tuple[str, str]] = []
     
     def find_existing_queue(farm_id: str) -> Optional[Dict[str, Any]]:
@@ -800,18 +826,24 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str) -> Gen
     
     yield create_queue_func
     
-    for queue in queues:
-        farm_id, queue_id = queue
-        try:
-            # Uncomment to delete queues after tests
-            deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
-            delete_farm_resource_log_group_util(farm_id=farm_id, resource_id=queue_id)
-        except Exception as e:
-            logger.warning(f"Exception occurred while deleting Queue {farm_id} {queue_id}: {str(e)}")
+    # Only clean up if --cleanup flag is provided
+    if request.config.getoption("--cleanup"):
+        for queue in queues:
+            farm_id, queue_id = queue
+            try:
+                logger.info(f"Cleaning up queue {queue_id} in farm {farm_id}")
+                deadline_client.delete_queue(farmId=farm_id, queueId=queue_id)
+                delete_farm_resource_log_group_util(farm_id=farm_id, resource_id=queue_id)
+            except Exception as e:
+                logger.warning(f"Exception occurred while deleting Queue {farm_id} {queue_id}: {str(e)}")
+    else:
+        logger.info(f"Skipping queue cleanup (use --cleanup to clean up resources)")
 
 @pytest.fixture(scope="session")
 def reusable_queue_id(
-    create_queue_helper: Callable, reusable_farm_id: str
+    create_queue_helper: Callable, 
+    reusable_farm_id: str,
+    request
 ) -> str:
     return create_queue_helper(farm_id=reusable_farm_id)["queueId"]
  
@@ -1017,23 +1049,42 @@ def reusable_queue_fleet_association(
     reusable_farm_id: str,
     reusable_queue_id: str,
     reusable_fleet_id: str,
+    request
 ) -> Generator[Tuple[str, str, str], None, None]:
-    deadline_client.create_queue_fleet_association(
-        farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id
-    )
+    # Check if association already exists
+    try:
+        response = deadline_client.get_queue_fleet_association(
+            farmId=reusable_farm_id, 
+            queueId=reusable_queue_id, 
+            fleetId=reusable_fleet_id
+        )
+        logger.info(f"Found existing queue-fleet association between queue {reusable_queue_id} and fleet {reusable_fleet_id}")
+    except Exception:
+        # Create new association if it doesn't exist
+        logger.info(f"Creating new queue-fleet association between queue {reusable_queue_id} and fleet {reusable_fleet_id}")
+        deadline_client.create_queue_fleet_association(
+            farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id
+        )
 
     yield reusable_farm_id, reusable_queue_id, reusable_fleet_id
 
-    try:
-        stop_queue_fleet_associations_and_wait(
-            deadline_client=deadline_client,
-            farm_id=reusable_farm_id,
-            queue_id=reusable_queue_id,
-            fleet_id=reusable_fleet_id,
-        )
+    # Only clean up if --cleanup flag is provided
+    if request.config.getoption("--cleanup"):
+        try:
+            logger.info(f"Cleaning up queue-fleet association between queue {reusable_queue_id} and fleet {reusable_fleet_id}")
+            stop_queue_fleet_associations_and_wait(
+                deadline_client=deadline_client,
+                farm_id=reusable_farm_id,
+                queue_id=reusable_queue_id,
+                fleet_id=reusable_fleet_id,
+            )
 
-        deadline_client.delete_queue_fleet_association(farmId=reusable_farm_id, queueId=reusable_queue_id, fleetId=reusable_fleet_id)
-
-    except Exception as e:
-        print(f"Delete reusable_queue_fleet_association exception {str(e)}")
-        pass
+            deadline_client.delete_queue_fleet_association(
+                farmId=reusable_farm_id, 
+                queueId=reusable_queue_id, 
+                fleetId=reusable_fleet_id
+            )
+        except Exception as e:
+            logger.warning(f"Exception during queue-fleet association cleanup: {str(e)}")
+    else:
+        logger.info(f"Skipping queue-fleet association cleanup (use --cleanup to clean up resources)")
