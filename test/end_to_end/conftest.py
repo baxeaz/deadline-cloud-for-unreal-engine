@@ -606,6 +606,105 @@ def session() -> boto3.Session:
     return boto3.Session()
 
 @pytest.fixture(scope="session")
+def sts_client(
+    session: boto3.Session
+) -> botocore.client.BaseClient:
+    client = session.client("sts", region_name=TEST_TARGET_REGION)
+    logger.info(f"Created STS client for region {TEST_TARGET_REGION}")
+    return client
+
+@pytest.fixture(scope="session")
+def s3_client(
+    session: boto3.Session
+) -> botocore.client.BaseClient:
+    client = session.client("s3", region_name=TEST_TARGET_REGION)
+    logger.info(f"Created S3 client for region {TEST_TARGET_REGION}")
+    return client
+
+@pytest.fixture(scope="session")
+def reusable_s3_bucket(
+    s3_client: botocore.client.BaseClient,
+    sts_client: botocore.client.BaseClient,
+    request
+) -> Generator[str, None, None]:
+    """
+    Create or reuse an S3 bucket for job attachments.
+    The bucket name follows the pattern 'deadline-unreal-test-{account_id}-{region}'.
+    """
+    # Get AWS account ID
+    account_id = sts_client.get_caller_identity()['Account']
+    
+    # Create bucket name with account ID and region to ensure uniqueness
+    bucket_name = f"deadline-unreal-test-{account_id}-{TEST_TARGET_REGION}"
+    
+    # Check if bucket already exists
+    try:
+        s3_client.head_bucket(Bucket=bucket_name)
+        logger.info(f"✓ Found existing S3 bucket: {bucket_name}")
+    except botocore.exceptions.ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code')
+        if error_code == '404' or error_code == 'NoSuchBucket':
+            # Bucket doesn't exist, create it
+            logger.info(f"Creating new S3 bucket: {bucket_name}...")
+            
+            # Different create_bucket syntax based on region
+            if TEST_TARGET_REGION == 'us-east-1':
+                s3_client.create_bucket(Bucket=bucket_name)
+            else:
+                s3_client.create_bucket(
+                    Bucket=bucket_name,
+                    CreateBucketConfiguration={'LocationConstraint': TEST_TARGET_REGION}
+                )
+                
+            # Add lifecycle policy to delete objects after 7 days
+            lifecycle_config = {
+                'Rules': [
+                    {
+                        'ID': 'DeleteAfter7Days',
+                        'Status': 'Enabled',
+                        'Expiration': {'Days': 7},
+                        'Filter': {'Prefix': ''}
+                    }
+                ]
+            }
+            s3_client.put_bucket_lifecycle_configuration(
+                Bucket=bucket_name,
+                LifecycleConfiguration=lifecycle_config
+            )
+            
+            logger.info(f"✓ Created new S3 bucket: {bucket_name} with 7-day lifecycle policy")
+        else:
+            # Some other error occurred
+            raise
+    
+    yield bucket_name
+    
+    # Only clean up if --cleanup flag is provided
+    if request.config.getoption("--cleanup"):
+        try:
+            # First delete all objects in the bucket
+            logger.info(f"Cleaning up S3 bucket {bucket_name}...")
+            
+            # List and delete all objects
+            paginator = s3_client.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=bucket_name):
+                if 'Contents' in page:
+                    objects = [{'Key': obj['Key']} for obj in page['Contents']]
+                    if objects:
+                        s3_client.delete_objects(
+                            Bucket=bucket_name,
+                            Delete={'Objects': objects}
+                        )
+            
+            # Now delete the bucket
+            s3_client.delete_bucket(Bucket=bucket_name)
+            logger.info(f"✓ Successfully deleted S3 bucket {bucket_name}")
+        except Exception as e:
+            logger.warning(f"Exception during S3 bucket cleanup: {str(e)}")
+    else:
+        logger.info(f"Skipping S3 bucket cleanup (use --cleanup to clean up resources)")
+
+@pytest.fixture(scope="session")
 def deadline_client(
     session: boto3.Session
 ) -> botocore.client.BaseClient:
@@ -901,7 +1000,7 @@ def reusable_fleet_id(
 
 
 @pytest.fixture(scope="session")
-def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, request) -> Generator[Any, None, None]:
+def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reusable_s3_bucket: str, request) -> Generator[Any, None, None]:
     queues: List[Tuple[str, str]] = []
     
     def find_existing_queue(farm_id: str) -> Optional[Dict[str, Any]]:
@@ -938,9 +1037,18 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reques
         
         # Create a new queue if none exists
         logger.info(f"Creating new test queue in farm {farm_id}...")
+        
+        # Set up job attachment settings with the S3 bucket
+        job_attachment_settings = {
+            "s3BucketName": reusable_s3_bucket,
+            "rootPrefix": "Deadline"
+        }
+        
         response = deadline_client.create_queue(
             farmId=farm_id,
             displayName="unreal-test-queue",
+            roleArn=queue_role_arn,
+            jobAttachmentSettings=job_attachment_settings,
             jobRunAsUser=job_run_as_user or {"posix": {"user": "", "group": ""}, "runAs": "WORKER_AGENT_USER"},
         )
         logger.info(f"✓ Created new test queue: {response['queueId']} in farm {farm_id}")
