@@ -214,22 +214,26 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
             
         return current_role_arn
 
-def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait_time=120, wait_interval=10, status_interval=5):
+
+def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_states=None,
+                      max_wait_time=600, wait_interval=10, status_interval=5):
     """
-    Monitor a Deadline Cloud job until it completes or times out.
+    Monitor a Deadline Cloud job until it reaches an expected state or times out.
 
     Args:
         deadline_client: Boto3 Deadline client
         farm_id: The farm ID containing the job
         job_id: The job ID to monitor
         queue_id: The queue ID containing the job
+        expected_states: List of states to consider as successful (e.g. ["READY", "SUCCEEDED"])
+                        If None, defaults to ["SUCCEEDED"]
         max_wait_time: Maximum time to wait in seconds (default: 120)
         wait_interval: Time between status checks in seconds (default: 10)
         status_interval: Time between status output messages in seconds (default: 5)
 
     Returns:
         tuple: (success, status, message)
-            - success: Boolean indicating if job completed successfully
+            - success: Boolean indicating if job reached expected state
             - status: Final job status
             - message: Descriptive message about the outcome
     """
@@ -237,13 +241,16 @@ def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait
     import datetime
     import json
 
-    logger.info(f"Monitoring job {job_id} in farm {farm_id}, queue {queue_id}")
-    print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] Starting job monitoring for job {job_id}")
+    # Default expected states if not provided
+    if expected_states is None:
+        expected_states = ["SUCCEEDED"]
+
+    logger.info(f"Monitoring job {job_id} in farm {farm_id}, queue {queue_id} for state(s) {expected_states}")
+    print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] Starting job monitoring for job {job_id} for state(s) {expected_states}")
 
     elapsed_time = 0
     status = None
     last_status_output = 0
-    job_details = None
 
     while elapsed_time < max_wait_time:
         try:
@@ -254,77 +261,44 @@ def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait
                 jobId=job_id
             )
 
-            # Debug: Print the full response structure
-            if elapsed_time == 0 or elapsed_time - last_status_output >= status_interval:
-                logger.debug(f"Job response: {json.dumps(job_response, default=str)}")
+            # Debug: Print the full response structure at the beginning
+            if elapsed_time == 0:
+                logger.debug(f"Initial job response structure: {json.dumps(job_response, default=str)}")
 
-            # Extract status - handle different response formats
-            if isinstance(job_response, dict):
+            # Extract status - first try taskRunStatus, then fall back to status
+            status = job_response.get('taskRunStatus')
+            if status is None:
                 status = job_response.get('status')
-                job_details = job_response
-                
-                # If status is None, try to find it in a different location in the response
-                if status is None and 'job' in job_response:
-                    status = job_response['job'].get('status')
-                
-                # Output status at regular intervals
-                if elapsed_time - last_status_output >= status_interval:
-                    current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                    progress_info = ""
-                    
-                    # Try to get more detailed progress information if available
-                    if 'parameters' in job_response and 'progressPercent' in job_response.get('parameters', {}):
-                        progress = job_response['parameters']['progressPercent']
-                        progress_info = f" - Progress: {progress}%"
-                    elif 'job' in job_response and 'parameters' in job_response.get('job', {}) and 'progressPercent' in job_response.get('job', {}).get('parameters', {}):
-                        progress = job_response['job']['parameters']['progressPercent']
-                        progress_info = f" - Progress: {progress}%"
-                    
-                    # Get task information if available
-                    tasks_info = ""
-                    try:
-                        tasks_response = deadline_client.list_job_entities(
-                            farmId=farm_id,
-                            queueId=queue_id,
-                            jobId=job_id,
-                            type="TASK"
-                        )
-                        
-                        if 'items' in tasks_response:
-                            total_tasks = len(tasks_response.get('items', []))
-                            completed_tasks = sum(1 for task in tasks_response.get('items', []) 
-                                                if task.get('status') in ["SUCCEEDED", "FAILED", "CANCELED"])
-                            
-                            tasks_info = f" - Tasks: {completed_tasks}/{total_tasks} completed"
-                    except Exception as e:
-                        # If we can't get task info, just continue without it
-                        logger.debug(f"Error getting task info: {str(e)}")
-                        pass
-                    
-                    # If status is still None, print the response structure to help debug
-                    if status is None:
-                        print(f"[{current_time}] Job {job_id} status: Unknown - Response structure: {json.dumps(job_response, default=str)[:200]}... (Elapsed: {elapsed_time}s)")
-                    else:
-                        print(f"[{current_time}] Job {job_id} status: {status}{progress_info}{tasks_info} (Elapsed: {elapsed_time}s)")
-                    
-                    last_status_output = elapsed_time
-                    
-                logger.info(f"Job {job_id} status: {status}")
 
-                # Check if job completed
-                if status == "SUCCEEDED":
-                    current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                    print(f"[{current_time}] Job {job_id} completed successfully!")
-                    logger.info(f"Job {job_id} completed successfully!")
-                    return True, status, f"Job {job_id} completed successfully"
-                elif status in ["FAILED", "CANCELED"]:
-                    current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                    print(f"[{current_time}] Job {job_id} ended with status: {status}")
-                    logger.error(f"Job {job_id} ended with status: {status}")
-                    return False, status, f"Job {job_id} failed with status: {status}"
-            else:
-                logger.warning(f"Unexpected response format: {type(job_response)}")
-                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Unexpected response format: {type(job_response)}")
+            # Output status at regular intervals
+            if elapsed_time - last_status_output >= status_interval:
+                current_time = datetime.datetime.now().strftime('%H:%M:%S')
+
+                # Get task information if available from taskRunStatusCounts
+                tasks_info = ""
+                if 'taskRunStatusCounts' in job_response:
+                    status_counts = job_response['taskRunStatusCounts']
+                    total_tasks = sum(count for count in status_counts.values())
+                    completed_tasks = sum(status_counts.get(status, 0) for status in ["SUCCEEDED", "FAILED", "CANCELED"])
+                    tasks_info = f" - Tasks: {completed_tasks}/{total_tasks} completed"
+
+                # If status is still None, print the response keys to help debug
+                if status is None:
+                    print(f"[{current_time}] Job {job_id} status: Unknown - Response keys: {list(job_response.keys())} (Elapsed: {elapsed_time}s)")
+                    logger.debug(f"Full response: {json.dumps(job_response, default=str)}")
+                else:
+                    print(f"[{current_time}] Job {job_id} status: {status}{tasks_info} (Elapsed: {elapsed_time}s)")
+
+                last_status_output = elapsed_time
+
+            logger.info(f"Job {job_id} status: {status}")
+
+            # Check if job reached expected state
+            if status in expected_states:
+                current_time = datetime.datetime.now().strftime('%H:%M:%S')
+                print(f"[{current_time}] Job {job_id} reached expected state: {status}")
+                logger.info(f"Job {job_id} reached expected state: {status}")
+                return True, status, f"Job {job_id} reached expected state: {status}"
 
             # Wait before checking again
             time.sleep(wait_interval)
@@ -337,7 +311,7 @@ def wait_for_job_completion(deadline_client, farm_id, job_id, queue_id, max_wait
             logger.error(error_msg)
             return False, "ERROR", error_msg
 
-    timeout_msg = f"Timeout waiting for job {job_id} to complete. Last status: {status}"
+    timeout_msg = f"Timeout waiting for job {job_id} to reach state(s) {expected_states}. Last status: {status}"
     current_time = datetime.datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] {timeout_msg}")
     logger.warning(timeout_msg)
@@ -898,11 +872,11 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
     """
     Launch deadline-worker-agent as a subprocess using the farm ID and fleet ID from our tests.
     This fixture is session-scoped and ensures the worker agent is stopped during cleanup.
-    
+
     Args:
         reusable_farm_id: The farm ID to use
         reusable_fleet_id: The fleet ID to use
-        
+
     Returns:
         subprocess.Popen: The worker agent process
     """
@@ -912,84 +886,107 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
     import os
     import platform
     import datetime
+    import shutil
 
-    # Check if deadline-worker-agent is available
+    # Check if deadline-worker-agent is available using 'where' or 'which'
     try:
-        subprocess.run(["deadline-worker-agent", "--version"], 
-                      check=True, 
-                      stdout=subprocess.PIPE, 
-                      stderr=subprocess.PIPE)
+        if platform.system() == "Windows":
+            result = subprocess.run(["where", "deadline-worker-agent"],
+                                   check=True,
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
+                                   text=True)
+            agent_path = result.stdout.strip().split('\n')[0]
+        else:
+            result = subprocess.run(["which", "deadline-worker-agent"],
+                                   check=True,
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
+                                   text=True)
+            agent_path = result.stdout.strip()
+
+        # Alternative check: just see if the executable exists in PATH
+        if not agent_path:
+            agent_path = shutil.which("deadline-worker-agent")
+
+        if not agent_path:
+            pytest.skip("deadline-worker-agent not found on PATH. Skipping worker agent tests.")
     except (subprocess.SubprocessError, FileNotFoundError):
         pytest.skip("deadline-worker-agent not found on PATH. Skipping worker agent tests.")
-    
+
     current_time = datetime.datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] Starting deadline-worker-agent with farm ID: {reusable_farm_id}, fleet ID: {reusable_fleet_id}")
-    
+    print(f"[{current_time}] Using agent at: {agent_path}")
+
+    # Create a log file for the worker agent
+    log_dir = os.path.join(os.getcwd(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"worker-agent-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log")
+
     # Start the worker agent process
     cmd = [
         "deadline-worker-agent",
         "--farm-id", reusable_farm_id,
         "--fleet-id", reusable_fleet_id,
-        "--log-level", "INFO"
+        # Disable rich console output to avoid encoding errors
+        "--structured-logs",  # Use structured logs instead of rich console output
+        "--run-jobs-as-agent-user"
     ]
-    
+
+    # Environment variables to disable rich console output
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["TERM"] = "dumb"  # Disable terminal features
+    env["NO_COLOR"] = "1"  # Disable color output
+
+    print(f"[{current_time}] Starting worker agent with command: {' '.join(cmd)}")
+    print(f"[{current_time}] Worker agent logs will be written to: {log_file}")
+
     # Use different process creation flags based on platform
     if platform.system() == "Windows":
         # On Windows, create a new process group so we can terminate it and all children
-        process = subprocess.Popen(
-            cmd,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1  # Line buffered
-        )
+        with open(log_file, "w") as f:
+            process = subprocess.Popen(
+                cmd,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                stdout=f,
+                stderr=f,
+                env=env,
+                text=True
+            )
     else:
         # On Unix-like systems, use process groups
-        process = subprocess.Popen(
-            cmd,
-            preexec_fn=os.setsid,  # Create a new session
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1  # Line buffered
-        )
-    
+        with open(log_file, "w") as f:
+            process = subprocess.Popen(
+                cmd,
+                preexec_fn=os.setsid,  # Create a new session
+                stdout=f,
+                stderr=f,
+                env=env,
+                text=True
+            )
+
     # Give the worker agent time to start and register
-    time.sleep(5)
-    
+    time.sleep(10)  # Increased to give more time to register
+
     # Check if process is still running
     if process.poll() is not None:
         # Process exited prematurely
-        stdout, stderr = process.communicate()
-        error_msg = f"Worker agent failed to start: exit code {process.returncode}\nStdout: {stdout}\nStderr: {stderr}"
+        with open(log_file, "r") as f:
+            log_content = f.read()
+        error_msg = f"Worker agent failed to start: exit code {process.returncode}\nLog content: {log_content}"
         pytest.fail(error_msg)
-    
-    # Start a thread to read and log output from the worker agent
-    import threading
-    
-    def log_output(stream, prefix):
-        for line in stream:
-            logger.debug(f"{prefix}: {line.strip()}")
-    
-    stdout_thread = threading.Thread(target=log_output, args=(process.stdout, "Worker stdout"))
-    stderr_thread = threading.Thread(target=log_output, args=(process.stderr, "Worker stderr"))
-    
-    stdout_thread.daemon = True
-    stderr_thread.daemon = True
-    
-    stdout_thread.start()
-    stderr_thread.start()
-    
+
     print(f"[{current_time}] Worker agent started successfully with PID: {process.pid}")
-    
-    # Return the process to the test
-    yield process
-    
+    print(f"[{current_time}] To view worker agent logs, check: {log_file}")
+
+    # Return the process and log file to the test
+    yield process, log_file
+
     # Cleanup: terminate the worker agent process
     current_time = datetime.datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] Stopping deadline-worker-agent (PID: {process.pid})")
-    
+
     try:
         if platform.system() == "Windows":
             # On Windows, send Ctrl+C to the process group
@@ -1011,7 +1008,7 @@ def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except Exception as e:
         print(f"[{current_time}] Error stopping worker agent: {str(e)}")
-    
+
     print(f"[{current_time}] Worker agent stopped")
 
 @pytest.fixture(scope="session")
