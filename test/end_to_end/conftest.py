@@ -17,6 +17,26 @@ import time
 # Configure logger to make resource reuse/creation messages stand out
 logger = logging.getLogger(__name__)
 
+# Configure logging to display INFO level messages to console
+def setup_logging():
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Create formatter
+    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    
+    # Add handler to logger
+    logger.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
+    
+    # Prevent log messages from being passed to the root logger
+    logger.propagate = False
+
+# Set up logging when this module is imported
+setup_logging()
+
 from botocore.client import BaseClient
 from typing import Any, Callable, Dict, Generator, Tuple, Optional
 
