@@ -795,7 +795,10 @@ def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore
                         # For synchronizing job attachments
                         "Effect": "Allow",
                         "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
-                        "Resource": ["arn:aws:s3:::deadline-test-*"],
+                        "Resource": [
+                            "arn:aws:s3:::deadline-unreal-test-*",
+                            "arn:aws:s3:::deadline-unreal-test-*/*"  # For operations on objects within the bucket
+                        ],
                     },
                     {
                         "Effect": "Allow",
@@ -842,7 +845,7 @@ def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore
             )
                 
             # IAM changes can take time to propagate
-            time.sleep(5)
+            time.sleep(20)
                 
             return create_role_response["Role"]["Arn"]
         except botocore.exceptions.ClientError:
