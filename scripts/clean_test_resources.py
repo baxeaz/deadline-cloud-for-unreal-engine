@@ -25,7 +25,59 @@ logger = logging.getLogger(__name__)
 # Constants
 TEST_QUEUE_NAME = "unreal-test-queue"
 TEST_FLEET_NAME = "test-reusable-customer-managed-fleet"
-WAIT_TIME_SECONDS = 5
+
+def wait_for_qfa_stopped_status(deadline_client, farm_id, queue_id, fleet_id, max_wait_seconds=60):
+    """
+    Wait for a queue-fleet association to reach STOPPED status.
+    
+    Args:
+        deadline_client: Boto3 Deadline client
+        farm_id: The farm ID
+        queue_id: The queue ID
+        fleet_id: The fleet ID
+        max_wait_seconds: Maximum time to wait in seconds
+        
+    Returns:
+        bool: True if the QFA reached STOPPED status, False otherwise
+    """
+    start_time = time.time()
+    wait_interval = 5  # Check every 5 seconds
+    elapsed_time = 0
+    
+    logger.info(f"Waiting up to {max_wait_seconds} seconds for queue-fleet association to reach STOPPED status...")
+    
+    while elapsed_time < max_wait_seconds:
+        try:
+            response = deadline_client.get_queue_fleet_association(
+                farmId=farm_id, 
+                queueId=queue_id, 
+                fleetId=fleet_id
+            )
+            
+            current_status = response.get("status")
+            elapsed_time = int(time.time() - start_time)
+            
+            logger.info(f"Current status: {current_status} (waited {elapsed_time}s/{max_wait_seconds}s)")
+            
+            if current_status == "STOPPED":
+                logger.info(f"Queue-fleet association reached STOPPED status after {elapsed_time} seconds")
+                return True
+                
+            # If it's in a terminal state other than STOPPED, break early
+            if current_status in ["FAILED", "DELETED"]:
+                logger.warning(f"Queue-fleet association reached terminal state {current_status} after {elapsed_time} seconds")
+                return False
+                
+            # Wait before checking again
+            time.sleep(wait_interval)
+            elapsed_time = int(time.time() - start_time)
+            
+        except Exception as e:
+            logger.error(f"Error checking queue-fleet association status: {e}")
+            return False
+    
+    logger.warning(f"Timed out after {max_wait_seconds} seconds waiting for queue-fleet association to reach STOPPED status")
+    return False
 
 def get_current_farm_id():
     """Get the current farm ID from deadline config show command"""
@@ -125,9 +177,22 @@ def cleanup_resources(farm_id, dry_run=False):
                                 )
                                 logger.info(f"Updated queue-fleet association status to STOP_SCHEDULING_AND_CANCEL_TASKS")
 
-                                # Wait for the status change to take effect
-                                logger.info(f"Waiting {WAIT_TIME_SECONDS} seconds for status change to take effect...")
-                                time.sleep(WAIT_TIME_SECONDS)
+                                # Wait for the QFA to reach STOPPED status
+                                try:
+                                    logger.info(f"Waiting for queue-fleet association to reach STOPPED status...")
+                                    waiter = deadline_client.get_waiter('queue_fleet_association_stopped')
+                                    waiter.wait(
+                                        farmId=farm_id,
+                                        queueId=queue_id,
+                                        fleetId=fleet_id,
+                                        WaiterConfig={
+                                            'Delay': 5,       # Check every 5 seconds
+                                            'MaxAttempts': 12 # Wait up to 60 seconds (5s * 12)
+                                        }
+                                    )
+                                    logger.info(f"Queue-fleet association reached STOPPED status")
+                                except Exception as waiter_error:
+                                    logger.warning(f"Timed out or error waiting for STOPPED status: {waiter_error}")
                             else:
                                 logger.info(f"Skipping status update as current status is {current_status}, not ACTIVE")
 
