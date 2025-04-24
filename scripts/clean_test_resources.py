@@ -92,7 +92,34 @@ def wait_for_qfa_stopped_status(deadline_client, farm_id, queue_id, fleet_id, ma
 
 
 def get_current_farm_id():
-    """Get the current farm ID from deadline config show command"""
+    """
+    Get the farm ID to use for cleanup.
+    
+    First checks for a test farm with the predefined name DEADLINE_UNREAL_TEST_FARM_NAME.
+    If not found, falls back to the current farm ID from deadline config.
+    
+    Returns:
+        str: The farm ID to use, or None if no farm ID could be determined
+    """
+    # First try to find a test farm
+    try:
+        deadline_client = boto3.client("deadline")
+        logger.info(f"Checking for existing test farm with name {DEADLINE_UNREAL_TEST_FARM_NAME}...")
+        response = deadline_client.list_farms()
+        farms = response.get("farms", response.get("items", []))
+        
+        for farm in farms:
+            if farm.get("displayName") == DEADLINE_UNREAL_TEST_FARM_NAME:
+                farm_id = farm.get("farmId")
+                logger.info(f"Found test farm: {farm_id}")
+                return farm_id
+                
+        logger.info("No test farm found, checking current farm from config")
+    except Exception as e:
+        logger.warning(f"Error checking for test farms: {e}")
+        logger.info("Falling back to current farm from config")
+    
+    # If no test farm found, get the current farm from config
     try:
         result = subprocess.run(
             ["deadline", "config", "show"], capture_output=True, text=True, check=True
