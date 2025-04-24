@@ -15,14 +15,16 @@ import logging
 import pytest
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
+import platform
 from scripts.build_plugin import find_engine_root
 
 # Import typing information
 from botocore.client import BaseClient
-from typing import Any, Callable, Dict, Generator, List, Tuple, Optional
+from typing import Any, Callable, Dict, Generator, List, Tuple, Optional, Union
 
 # Configure logger to make resource reuse/creation messages stand out
 logger = logging.getLogger(__name__)
@@ -624,12 +626,15 @@ def run_unreal_test(request, reusable_queue_fleet_association) -> Callable:
         full_output = []
 
         # Process and display output in real-time
-        for line in process.stdout:
-            # Print to console in real-time (keeping this for immediate feedback)
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            # Store for later analysis
-            full_output.append(line)
+        if process.stdout:
+            for line in process.stdout:
+                # Print to console in real-time (keeping this for immediate feedback)
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                # Store for later analysis
+                full_output.append(line)
+        else:
+            logger.warning("Process stdout is None, cannot capture output")
 
         # Wait for process to complete and get return code
         return_code = process.wait()
@@ -919,11 +924,11 @@ def create_fleet_util(
 
 
 @pytest.fixture(scope="session")
-def reusable_farm_id() -> str:
+def reusable_farm_id() -> Generator[str, None, None]:
     """
     Fixture that provides a farm ID.
 
-    Returns:
+    Yields:
         The farm ID to use for tests
     """
     farm_id = config.get_setting("defaults.farm_id")
@@ -1464,10 +1469,10 @@ def deadline_worker_agent(
 
         # Alternative check: just see if the executable exists in PATH
         if not agent_path:
-            agent_path = shutil.which("deadline-worker-agent")
-
-        if not agent_path:
-            pytest.skip("deadline-worker-agent not found on PATH. Skipping worker agent tests.")
+            agent_path_maybe = shutil.which("deadline-worker-agent")
+            if not agent_path_maybe:
+                pytest.skip("deadline-worker-agent not found on PATH. Skipping worker agent tests.")
+            agent_path = agent_path_maybe
     except (subprocess.SubprocessError, FileNotFoundError):
         pytest.skip("deadline-worker-agent not found on PATH. Skipping worker agent tests.")
 
@@ -1517,16 +1522,26 @@ def deadline_worker_agent(
                 text=True,
             )
     else:
-        # On Unix-like systems, use process groups
+        # On Unix-like systems, use process groups if available
         with open(log_file, "w") as f:
-            process = subprocess.Popen(
-                cmd,
-                preexec_fn=os.setsid,  # Create a new session
-                stdout=f,
-                stderr=f,
-                env=env,
-                text=True,
-            )
+            if hasattr(os, 'setsid'):
+                process = subprocess.Popen(
+                    cmd,
+                    preexec_fn=os.setsid,  # Create a new session
+                    stdout=f,
+                    stderr=f,
+                    env=env,
+                    text=True,
+                )
+            else:
+                # Fallback if setsid is not available
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=f,
+                    stderr=f,
+                    env=env,
+                    text=True,
+                )
 
     # Give the worker agent time to start and register
     time.sleep(10)  # Increased to give more time to register
@@ -1560,11 +1575,18 @@ def deadline_worker_agent(
                 process.terminate()
         else:
             # On Unix, kill the process group
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            # Give it some time to shut down gracefully
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
+            if hasattr(os, 'killpg') and hasattr(os, 'getpgid'):
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                # Give it some time to shut down gracefully
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    # Force kill if it doesn't respond to SIGTERM
+                    if hasattr(signal, 'SIGKILL'):
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    else:
+                        # Fallback if SIGKILL is not available
+                        process.kill()
                 # Force kill if it doesn't respond to SIGTERM
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except Exception as e:

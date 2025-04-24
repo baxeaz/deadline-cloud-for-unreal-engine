@@ -29,7 +29,7 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 
 
-def find_unreal_engine(folder: str, version: str = None) -> str:
+def find_unreal_engine(folder: str, version: Optional[str] = None) -> str:
     """
     Finds a version in the given folder by searching for all subfolders which begin with "UE_" and comparing the
     version strings which come after the underscore, or checking against a specified version
@@ -226,7 +226,7 @@ def install_whl_global(whl_path: str):
     logger.info(f"Install result: {result.returncode}")
 
 
-def find_engine_root(version: str = None) -> str:
+def find_engine_root(version: Optional[str] = None) -> str:
     """
     Find the latest version of Unreal Engine
 
