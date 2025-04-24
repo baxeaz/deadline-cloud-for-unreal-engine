@@ -257,14 +257,24 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
 
             # Check if the farm value is already an ID (starts with "farm-")
             if farm_value.startswith("farm-"):
-                logger.info(f"Farm value appears to be an ID, setting directly: {farm_value}")
-                config.set_setting("defaults.farm_id", farm_value)
+                # Check if the value is actually changing
+                current_farm_id = config.get_setting("defaults.farm_id")
+                if current_farm_id != farm_value:
+                    logger.info(f"Farm value appears to be an ID, setting directly: {farm_value}")
+                    config.set_setting("defaults.farm_id", farm_value)
+                else:
+                    logger.info(f"Farm ID unchanged (already {farm_value}), skipping update")
             else:
                 # It's a name, look it up
                 farm = self.find_farm_by_name(farm_value)
                 if farm is not None:
-                    logger.info(f"Found farm with name {farm_value}, setting ID: {farm.id}")
-                    config.set_setting("defaults.farm_id", farm.id)
+                    # Check if the value is actually changing
+                    current_farm_id = config.get_setting("defaults.farm_id")
+                    if current_farm_id != farm.id:
+                        logger.info(f"Found farm with name {farm_value}, setting ID: {farm.id}")
+                        config.set_setting("defaults.farm_id", farm.id)
+                    else:
+                        logger.info(f"Farm ID unchanged (already {farm.id}), skipping update")
                 else:
                     logger.warning(f"Could not find farm with name: {farm_value}")
 
@@ -278,14 +288,24 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
 
             # Check if the queue value is already an ID (starts with "queue-")
             if queue_value.startswith("queue-"):
-                logger.info(f"Queue value appears to be an ID, setting directly: {queue_value}")
-                config.set_setting("defaults.queue_id", queue_value)
+                # Check if the value is actually changing
+                current_queue_id = config.get_setting("defaults.queue_id")
+                if current_queue_id != queue_value:
+                    logger.info(f"Queue value appears to be an ID, setting directly: {queue_value}")
+                    config.set_setting("defaults.queue_id", queue_value)
+                else:
+                    logger.info(f"Queue ID unchanged (already {queue_value}), skipping update")
             else:
                 # It's a name, look it up
                 queue = self.find_queue_by_name(queue_value)
                 if queue is not None:
-                    logger.info(f"Found queue with name {queue_value}, setting ID: {queue.id}")
-                    config.set_setting("defaults.queue_id", queue.id)
+                    # Check if the value is actually changing
+                    current_queue_id = config.get_setting("defaults.queue_id")
+                    if current_queue_id != queue.id:
+                        logger.info(f"Found queue with name {queue_value}, setting ID: {queue.id}")
+                        config.set_setting("defaults.queue_id", queue.id)
+                    else:
+                        logger.info(f"Queue ID unchanged (already {queue.id}), skipping update")
                 else:
                     logger.warning(f"Could not find queue with name: {queue_value}")
             return

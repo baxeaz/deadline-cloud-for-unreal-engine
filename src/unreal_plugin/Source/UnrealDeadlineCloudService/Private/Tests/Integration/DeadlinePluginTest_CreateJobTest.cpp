@@ -190,15 +190,31 @@ public:
                         
                     if (Key == TEXT("farm_id") && !Value.IsEmpty())
                     {
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *Value);
-                        Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
-                        farmChanged = true;
+                        // Check if the farm value is actually changing
+                        if (Settings->WorkStationConfiguration.Profile.DefaultFarm != Value)
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *Value);
+                            Settings->WorkStationConfiguration.Profile.DefaultFarm = Value;
+                            farmChanged = true;
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Farm value unchanged (already '%s'), skipping update"), *Value);
+                        }
                     }
                     else if (Key == TEXT("queue_id") && !Value.IsEmpty())
                     {
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *Value);
-                        Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
-                        queueChanged = true;
+                        // Check if the queue value is actually changing
+                        if (Settings->WorkStationConfiguration.Farm.DefaultQueue != Value)
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *Value);
+                            Settings->WorkStationConfiguration.Farm.DefaultQueue = Value;
+                            queueChanged = true;
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Queue value unchanged (already '%s'), skipping update"), *Value);
+                        }
                     }
                 }
                 else
@@ -232,11 +248,35 @@ public:
         if (Settings)
         {
             UE_LOG(LogCreateJobTest, Display, TEXT("Restoring settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
-            Settings->WorkStationConfiguration.Profile.DefaultFarm = OriginalFarmId;
-            Settings->WorkStationConfiguration.Farm.DefaultQueue = OriginalQueueId;
-            Settings->SaveConfig();
+            
+            // Check if the farm value needs to be restored
+            if (Settings->WorkStationConfiguration.Profile.DefaultFarm != OriginalFarmId)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Restoring farm from '%s' to '%s'"), 
+                    *Settings->WorkStationConfiguration.Profile.DefaultFarm, *OriginalFarmId);
+                Settings->WorkStationConfiguration.Profile.DefaultFarm = OriginalFarmId;
+                Settings->SaveConfig();
+                Settings->OnSettingsModified("DefaultFarm");
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Farm already at original value '%s', no restore needed"), *OriginalFarmId);
+            }
+            
+            // Check if the queue value needs to be restored
+            if (Settings->WorkStationConfiguration.Farm.DefaultQueue != OriginalQueueId)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Restoring queue from '%s' to '%s'"), 
+                    *Settings->WorkStationConfiguration.Farm.DefaultQueue, *OriginalQueueId);
+                Settings->WorkStationConfiguration.Farm.DefaultQueue = OriginalQueueId;
+                Settings->SaveConfig();
+                Settings->OnSettingsModified("DefaultQueue");
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Queue already at original value '%s', no restore needed"), *OriginalQueueId);
+            }
         }
-        Settings->OnSettingsModified("DefaultFarm");
     }
 
 private:
