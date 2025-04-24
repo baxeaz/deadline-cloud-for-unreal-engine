@@ -1520,7 +1520,7 @@ def deadline_worker_agent(
     else:
         # On Unix-like systems, use process groups if available
         with open(log_file, "w") as f:
-            if hasattr(os, 'setsid'):
+            if hasattr(os, "setsid"):
                 process = subprocess.Popen(
                     cmd,
                     preexec_fn=os.setsid,  # Create a new session
@@ -1571,8 +1571,9 @@ def deadline_worker_agent(
                 process.terminate()
         else:
             # On Unix, kill the process group
-            if hasattr(os, 'killpg') and hasattr(os, 'getpgid'):
+            if hasattr(os, "killpg") and hasattr(os, "getpgid"):
                 import signal
+
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                 # Give it some time to shut down gracefully
                 try:
@@ -1580,7 +1581,8 @@ def deadline_worker_agent(
                 except subprocess.TimeoutExpired:
                     # Force kill if it doesn't respond to SIGTERM
                     import signal
-                    if hasattr(signal, 'SIGKILL'):
+
+                    if hasattr(signal, "SIGKILL"):
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                     else:
                         # Fallback if SIGKILL is not available
