@@ -13,12 +13,21 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime
+from pathlib import Path
+
+# Import typing information
+from botocore.client import BaseClient
+from typing import Any, Callable, Dict, Generator, List, Tuple, Optional, Union
 
 # Configure logger to make resource reuse/creation messages stand out
 logger = logging.getLogger(__name__)
 
-# Configure logging to display INFO level messages to console
-def setup_logging():
+def setup_logging() -> None:
+    """
+    Configure logging to display INFO level messages to console with timestamp.
+    Sets up a console handler with appropriate formatting for test output.
+    """
     # Create console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
@@ -37,14 +46,13 @@ def setup_logging():
 # Set up logging when this module is imported
 setup_logging()
 
-from botocore.client import BaseClient
-from typing import Any, Callable, Dict, Generator, Tuple, Optional
-
+# Add the repository root to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
 from scripts.build_plugin import find_engine_root
 
-DEFAULT_MIN_CMF_CONFIGURATION: Any = {
+# Default configuration for customer managed fleets
+DEFAULT_MIN_CMF_CONFIGURATION: Dict[str, Any] = {
     "customerManaged": {
         "mode": "NO_SCALING",
         "workerCapabilities": {
@@ -56,26 +64,51 @@ DEFAULT_MIN_CMF_CONFIGURATION: Any = {
     }
 }
 
-DEADLINE_UNREAL_QUEUE_TEST_ROLE = "DeadlineUnrealQueueTestRole"
-DEADLINE_UNREAL_FLEET_TEST_ROLE = "DeadlineUnrealFleetTestRole"
-DEADLINE_UNREAL_TEST_QUEUE_NAME = "deadline-unreal-test-queue"
-DEADLINE_UNREAL_TEST_FLEET_NAME = "deadline-unreal-test-fleet"
+# Constants for IAM roles and resource names
+DEADLINE_UNREAL_QUEUE_TEST_ROLE: str = "DeadlineUnrealQueueTestRole"
+DEADLINE_UNREAL_FLEET_TEST_ROLE: str = "DeadlineUnrealFleetTestRole"
+DEADLINE_UNREAL_TEST_QUEUE_NAME: str = "deadline-unreal-test-queue"
+DEADLINE_UNREAL_TEST_FLEET_NAME: str = "deadline-unreal-test-fleet"
 
 def get_config_var(key: str, default: str) -> str:
+    """
+    Get a configuration variable from environment variables with a default fallback.
+    
+    Args:
+        key: The environment variable name to look up
+        default: The default value to use if the environment variable is not set
+        
+    Returns:
+        The value of the environment variable or the default value
+    """
     var = os.environ.get(key, default)
     logger.info(f"Using {var} for {key}")
     return var
 
+# Target AWS region for all tests
 TEST_TARGET_REGION: str = get_config_var("TEST_TARGET_REGION", "us-west-2")
 
 @pytest.fixture(scope="session")
 def region() -> str:
+    """
+    Fixture that provides the AWS region for tests.
+    
+    Returns:
+        The AWS region string to use for all tests
+    """
     return TEST_TARGET_REGION
 
 def delete_farm_resource_log_group_util(
     farm_id: str,
     resource_id: str,
 ) -> None:
+    """
+    Set retention policy on CloudWatch log groups for farm resources.
+    
+    Args:
+        farm_id: The farm ID containing the resource
+        resource_id: The resource ID (queue or fleet) to set retention policy for
+    """
     cwl_client = boto3.client("logs", TEST_TARGET_REGION)
     log_group_name = f"/aws/deadline/{farm_id}/{resource_id}"
     retention_number_of_days = 7
@@ -85,7 +118,11 @@ def delete_farm_resource_log_group_util(
         logger.warning(f"put_retention_policy exception {str(e)}")
         pass
 
-def cancel_pending_jobs(deadline_client, farm_id, queue_id):
+def cancel_pending_jobs(
+    deadline_client: BaseClient, 
+    farm_id: str, 
+    queue_id: str
+) -> None:
     """
     Cancel any jobs in the queue that are in a pending or running state.
     
@@ -136,7 +173,13 @@ def cancel_pending_jobs(deadline_client, farm_id, queue_id):
         import traceback
         logger.warning(f"Traceback: {traceback.format_exc()}")
 
-def pytest_addoption(parser):
+def pytest_addoption(parser) -> None:
+    """
+    Add custom command line options to pytest.
+    
+    Args:
+        parser: The pytest command line parser
+    """
     parser.addoption(
         "--nobuild", 
         action="store_true", 
@@ -158,34 +201,37 @@ def pytest_addoption(parser):
 
 def get_source_root() -> str:
     """
-    Return the path of the root of the deadline-cloud-for-unreal-engine source.  Assumes it's 2 folders up from the directory this
-    file lives in, which is in a "/scripts/" subfolder off the root
+    Return the path of the root of the deadline-cloud-for-unreal-engine source.
+    
+    Assumes it's 2 folders up from the directory this file lives in.
+    
+    Returns:
+        The absolute path to the repository root directory
     """
-
     current_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Get the parent directory
     parent_dir = os.path.dirname(current_dir)
     root_dir = os.path.dirname(parent_dir)
     return root_dir
 
 
-def get_build_script_args() -> list[str]:
+def get_build_script_args() -> List[str]:
     """
-    Return the arguments to pass to the build script for a test installation
+    Return the arguments to pass to the build script for a test installation.
+    
+    Returns:
+        List of command line arguments for the build script
     """
-
     return ["--install", "--test", "--worker"]
 
 
-def add_plugins_to_project(project_path: str, plugins: list[str]):
+def add_plugins_to_project(project_path: str, plugins: List[str]) -> None:
     """
-    Add the provided list of plugins to the uproject at the given project_path
-
-    :param project_path: path to .uproject file to add plugins to
-    :param plugins: List of string names of plugins to add to the project
+    Add the provided list of plugins to the uproject at the given project_path.
+    
+    Args:
+        project_path: Path to .uproject file to add plugins to
+        plugins: List of string names of plugins to add to the project
     """
-
     # Read the current .uproject file
     with open(project_path, "r") as f:
         project_data = json.load(f)
@@ -205,15 +251,48 @@ def add_plugins_to_project(project_path: str, plugins: list[str]):
         json.dump(project_data, f, indent=2)
 
 @pytest.fixture(scope="session")
-def iam_client(session: boto3.Session, region: str) -> botocore.client.BaseClient:
+def iam_client(session: boto3.Session, region: str) -> BaseClient:
+    """
+    Fixture that provides an IAM client.
+    
+    Args:
+        session: The boto3 session
+        region: The AWS region
+        
+    Returns:
+        An IAM client
+    """
     return session.client("iam", region_name=region)
 
 @pytest.fixture(scope="session")
-def sts_client(session: boto3.Session, region: str) -> botocore.client.BaseClient:
+def sts_client(session: boto3.Session, region: str) -> BaseClient:
+    """
+    Fixture that provides an STS client.
+    
+    Args:
+        session: The boto3 session
+        region: The AWS region
+        
+    Returns:
+        An STS client
+    """
     return session.client("sts", region_name=region)
 
 @pytest.fixture(scope="session")
-def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.client.BaseClient) -> str:
+def queue_role_arn(iam_client: BaseClient, sts_client: BaseClient) -> str:
+    """
+    Fixture that provides an IAM role ARN for Deadline Cloud queues.
+    
+    First tries to get the test role, then tries to create it if it doesn't exist,
+    and falls back to the current execution role if neither is possible.
+    
+    Args:
+        iam_client: The IAM client
+        sts_client: The STS client
+        
+    Returns:
+        The ARN of the IAM role to use for queues
+    """
     # First try to get the test role
     try:
         response = iam_client.get_role(RoleName=DEADLINE_UNREAL_QUEUE_TEST_ROLE)
@@ -298,8 +377,16 @@ def queue_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.
         return current_role_arn
 
 
-def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_states=None,
-                      max_wait_time=600, wait_interval=10, status_interval=5):
+def wait_for_job_state(
+    deadline_client: BaseClient, 
+    farm_id: str, 
+    job_id: str, 
+    queue_id: str, 
+    expected_states: Optional[List[str]] = None,
+    max_wait_time: int = 600, 
+    wait_interval: int = 10, 
+    status_interval: int = 5
+) -> Tuple[bool, Optional[str], str]:
     """
     Monitor a Deadline Cloud job until it reaches an expected state or times out.
 
@@ -310,7 +397,7 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
         queue_id: The queue ID containing the job
         expected_states: List of states to consider as successful (e.g. ["READY", "SUCCEEDED"])
                         If None, defaults to ["SUCCEEDED"]
-        max_wait_time: Maximum time to wait in seconds (default: 120)
+        max_wait_time: Maximum time to wait in seconds (default: 600)
         wait_interval: Time between status checks in seconds (default: 10)
         status_interval: Time between status output messages in seconds (default: 5)
 
@@ -320,10 +407,6 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
             - status: Final job status
             - message: Descriptive message about the outcome
     """
-    import time
-    import datetime
-    import json
-
     # Default expected states if not provided
     if expected_states is None:
         expected_states = ["SUCCEEDED"]
@@ -396,7 +479,7 @@ def wait_for_job_state(deadline_client, farm_id, job_id, queue_id, expected_stat
     return False, status, timeout_msg
 
 
-def extract_job_info_from_test_output(output_lines):
+def extract_job_info_from_test_output(output_lines: List[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Extract job ID, farm ID, and queue ID from test output lines.
 
@@ -406,8 +489,6 @@ def extract_job_info_from_test_output(output_lines):
     Returns:
         tuple: (job_id, farm_id, queue_id) - Any may be None if not found
     """
-    import re
-
     job_id = None
     farm_id = None
     queue_id = None
@@ -443,17 +524,30 @@ def extract_job_info_from_test_output(output_lines):
     return job_id, farm_id, queue_id
 
 @pytest.fixture
-def run_unreal_test(request, reusable_queue_fleet_association):
-    def _run_unreal_test(test_path: str, uproject_file: str, deadlineargs: str=None):
+def run_unreal_test(request, reusable_queue_fleet_association) -> Callable:
+    """
+    Fixture that provides a function to run Unreal Engine automation tests.
+    
+    Args:
+        request: The pytest request object
+        reusable_queue_fleet_association: Fixture providing farm, queue, and fleet IDs
+        
+    Returns:
+        A callable function that runs Unreal Engine automation tests
+    """
+    def _run_unreal_test(test_path: str, uproject_file: str, deadlineargs: Optional[str] = None) -> Tuple[bool, List[str]]:
         """
         Runs an Unreal Engine automation test and determines success or failure by analyzing output patterns
         rather than relying on the process return code.
 
-        :param test_path: Automation test path (e.g. "Deadline.Integration.CreateJob")
-        :param uproject_file: Path to the uproject file
-        :param deadlineargs: Optional arguments to pass to Deadline, defaults to basic settings if None
-        :return: Tuple of (success, output_lines) where success is a boolean indicating whether the test passed,
-                and output_lines is a list of all output lines from the test
+        Args:
+            test_path: Automation test path (e.g. "Deadline.Integration.CreateJob")
+            uproject_file: Path to the uproject file
+            deadlineargs: Optional arguments to pass to Deadline, defaults to basic settings if None
+            
+        Returns:
+            Tuple of (success, output_lines) where success is a boolean indicating whether the test passed,
+            and output_lines is a list of all output lines from the test
         """
         if deadlineargs is None:
             deadlineargs = "-NoLoadingScreen -FixedSeed -log -Unattended -MRQInstance -deterministicaudio -audiomixer"
@@ -544,17 +638,22 @@ def run_unreal_test(request, reusable_queue_fleet_association):
     return _run_unreal_test
 
 @pytest.fixture(scope="session")
-def build_plugin(request):
-    # A fixture to run the scripts/build_plugin.py script at most once per test session to guarantee
-    # the latest version of the code has been built and installed.  We run the script as a subprocess
-    # rather than importing and running the methods directly to simulate how customers will execute it
-
+def build_plugin(request) -> None:
+    """
+    Fixture to run the scripts/build_plugin.py script at most once per test session.
+    
+    Guarantees the latest version of the code has been built and installed.
+    Runs the script as a subprocess rather than importing and running the methods directly
+    to simulate how customers will execute it.
+    
+    Args:
+        request: The pytest request object
+    """
     if request.config.getoption("--nobuild"):
         logger.info("Skipping build_plugin")
         return
 
     # build_plugin.py lives in the scripts subfolder relative to the root of the repository
-    # which is two folders up from this folder
     script_path = os.path.join(get_source_root(), "scripts", "build_plugin.py")
     if not os.path.exists(script_path):
         pytest.fail(f"Could not find build_plugin.py at {script_path}")
@@ -578,7 +677,18 @@ def build_plugin(request):
 
 
 @pytest.fixture(scope="session")
-def create_readonly_test_project(request):
+def create_readonly_test_project(request) -> Generator[Tuple[str, str], None, None]:
+    """
+    Create a test Unreal Engine project for testing.
+    
+    Creates a copy of a template project and adds required plugins.
+    
+    Args:
+        request: The pytest request object
+        
+    Yields:
+        Tuple containing (project_directory_path, project_file_path)
+    """
     project_base = os.path.expanduser("~/Documents/UnrealProjects/TestProjects")
     os.makedirs(project_base, exist_ok=True)
 
@@ -608,33 +718,62 @@ def create_readonly_test_project(request):
 
 @pytest.fixture(scope="session")
 def session() -> boto3.Session:
+    """
+    Fixture that provides a boto3 session.
+    
+    Returns:
+        A boto3 session
+    """
     return boto3.Session()
 
 @pytest.fixture(scope="session")
-def sts_client(
-    session: boto3.Session
-) -> botocore.client.BaseClient:
+def sts_client(session: boto3.Session) -> BaseClient:
+    """
+    Fixture that provides an STS client.
+    
+    Args:
+        session: The boto3 session
+        
+    Returns:
+        An STS client
+    """
     client = session.client("sts", region_name=TEST_TARGET_REGION)
     logger.info(f"Created STS client for region {TEST_TARGET_REGION}")
     return client
 
 @pytest.fixture(scope="session")
-def s3_client(
-    session: boto3.Session
-) -> botocore.client.BaseClient:
+def s3_client(session: boto3.Session) -> BaseClient:
+    """
+    Fixture that provides an S3 client.
+    
+    Args:
+        session: The boto3 session
+        
+    Returns:
+        An S3 client
+    """
     client = session.client("s3", region_name=TEST_TARGET_REGION)
     logger.info(f"Created S3 client for region {TEST_TARGET_REGION}")
     return client
 
 @pytest.fixture(scope="session")
 def reusable_s3_bucket(
-    s3_client: botocore.client.BaseClient,
-    sts_client: botocore.client.BaseClient,
+    s3_client: BaseClient,
+    sts_client: BaseClient,
     request
 ) -> Generator[str, None, None]:
     """
     Create or reuse an S3 bucket for job attachments.
+    
     The bucket name follows the pattern 'deadline-unreal-test-{account_id}-{region}'.
+    
+    Args:
+        s3_client: The S3 client
+        sts_client: The STS client
+        request: The pytest request object
+        
+    Yields:
+        The name of the S3 bucket
     """
     # Get AWS account ID
     account_id = sts_client.get_caller_identity()['Account']
@@ -710,9 +849,16 @@ def reusable_s3_bucket(
         logger.info(f"Skipping S3 bucket cleanup (use --cleanup to clean up resources)")
 
 @pytest.fixture(scope="session")
-def deadline_client(
-    session: boto3.Session
-) -> botocore.client.BaseClient:
+def deadline_client(session: boto3.Session) -> BaseClient:
+    """
+    Fixture that provides a Deadline Cloud client.
+    
+    Args:
+        session: The boto3 session
+        
+    Returns:
+        A Deadline Cloud client
+    """
     client = session.client("deadline", region_name=TEST_TARGET_REGION)
     logger.info(f"Created deadline client for region {TEST_TARGET_REGION}")
     return client
@@ -723,11 +869,17 @@ def create_fleet_util(
     wait_for_active: bool = True,
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """Helper method to create one Fleet.
+    """
+    Helper method to create one Fleet.
 
     Args:
-        deadline_client (BaseClient): The client used to call deadline API
-        wait_for_active (bool, optional): Whether to return the result until Fleet is in ACTIVE status
+        deadline_client: The client used to call deadline API
+        worker_role_arn: The ARN of the IAM role to use for the fleet
+        wait_for_active: Whether to return the result until Fleet is in ACTIVE status
+        **kwargs: Additional parameters to pass to the create_fleet API
+        
+    Returns:
+        The response from the get_fleet API call
     """
     if "minWorkerCount" not in kwargs:
         kwargs["minWorkerCount"] = 0
@@ -751,13 +903,33 @@ def create_fleet_util(
     return response
 
 @pytest.fixture(scope="session")
-def reusable_farm_id():
+def reusable_farm_id() -> str:
+    """
+    Fixture that provides a farm ID.
+    
+    Returns:
+        The farm ID to use for tests
+    """
     farm_id = config.get_setting("defaults.farm_id")
     logger.info(f"Using farm_id {farm_id}")
     yield farm_id
 
 @pytest.fixture(scope="session")
-def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore.client.BaseClient, reusable_farm_id) -> str:
+def worker_role_arn(iam_client: BaseClient, sts_client: BaseClient, reusable_farm_id: str) -> str:
+    """
+    Fixture that provides an IAM role ARN for Deadline Cloud fleets.
+    
+    First tries to get the test role, then tries to create it if it doesn't exist,
+    and falls back to the current execution role if neither is possible.
+    
+    Args:
+        iam_client: The IAM client
+        sts_client: The STS client
+        reusable_farm_id: The farm ID to use for tests
+        
+    Returns:
+        The ARN of the IAM role to use for fleets
+    """
     try:
         response = iam_client.get_role(RoleName=DEADLINE_UNREAL_FLEET_TEST_ROLE)
         return response["Role"]["Arn"]
@@ -870,8 +1042,14 @@ def worker_role_arn(iam_client: botocore.client.BaseClient, sts_client: botocore
             
         return current_role_arn
 
-def delete_fleets_util(deadline_client, fleet_responses):
-    """Delete specific fleets created during testing with proper lifecycle management"""
+def delete_fleets_util(deadline_client: BaseClient, fleet_responses: List[Dict[str, Any]]) -> None:
+    """
+    Delete specific fleets created during testing with proper lifecycle management.
+    
+    Args:
+        deadline_client: The Deadline Cloud client
+        fleet_responses: List of fleet response objects containing fleetId and farmId
+    """
     for response in fleet_responses:
         try:
             if "fleetId" in response and "farmId" in response:
@@ -938,6 +1116,19 @@ def reusable_fleet_id(
     worker_role_arn: str,
     request
 ) -> Generator[str, None, None]:
+    """
+    Fixture that provides a fleet ID, creating one if it doesn't exist.
+    
+    Args:
+        worker_id: The pytest worker ID
+        deadline_client: The Deadline Cloud client
+        reusable_farm_id: The farm ID
+        worker_role_arn: The ARN of the IAM role to use for the fleet
+        request: The pytest request object
+        
+    Yields:
+        The fleet ID
+    """
     fleet_id = None
     fleet_response = None
     created_new = False
@@ -1009,10 +1200,36 @@ def reusable_fleet_id(
 
 
 @pytest.fixture(scope="session")
-def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reusable_s3_bucket: str, request) -> Generator[Any, None, None]:
+def create_queue_helper(
+    deadline_client: BaseClient, 
+    queue_role_arn: str, 
+    reusable_s3_bucket: str, 
+    request
+) -> Generator[Callable[[str, Optional[str], Optional[Dict[str, Any]]], Dict[str, Any]], None, None]:
+    """
+    Fixture that provides a function to create or reuse a queue.
+    
+    Args:
+        deadline_client: The Deadline Cloud client
+        queue_role_arn: The ARN of the IAM role to use for the queue
+        reusable_s3_bucket: The S3 bucket to use for job attachments
+        request: The pytest request object
+        
+    Yields:
+        A callable function that creates or reuses a queue
+    """
     queues: List[Tuple[str, str]] = []
     
     def find_existing_queue(farm_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Find an existing test queue in the farm.
+        
+        Args:
+            farm_id: The farm ID to search in
+            
+        Returns:
+            The queue object if found, None otherwise
+        """
         try:
             # List queues in the farm
             logger.info(f"Checking for existing test queues in farm {farm_id}...")
@@ -1034,8 +1251,21 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reusab
             return None
     
     def create_queue_func(
-        farm_id: str, queue_role_arn: Optional[str] = queue_role_arn, job_run_as_user: Optional[dict] = None
+        farm_id: str, 
+        queue_role_arn: Optional[str] = queue_role_arn, 
+        job_run_as_user: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
+        """
+        Create or reuse a queue.
+        
+        Args:
+            farm_id: The farm ID to create the queue in
+            queue_role_arn: The ARN of the IAM role to use for the queue
+            job_run_as_user: The job run as user configuration
+            
+        Returns:
+            The queue object
+        """
         # First check for an existing queue
         existing_queue = find_existing_queue(farm_id)
         if existing_queue:
@@ -1082,21 +1312,39 @@ def create_queue_helper(deadline_client: BaseClient, queue_role_arn: str, reusab
 
 @pytest.fixture(scope="session")
 def reusable_queue_id(
-    create_queue_helper: Callable, 
+    create_queue_helper: Callable[[str, Optional[str], Optional[Dict[str, Any]]], Dict[str, Any]], 
     reusable_farm_id: str,
     request
 ) -> str:
+    """
+    Fixture that provides a queue ID, creating one if it doesn't exist.
+    
+    Args:
+        create_queue_helper: Function to create or reuse a queue
+        reusable_farm_id: The farm ID
+        request: The pytest request object
+        
+    Returns:
+        The queue ID
+    """
     queue = create_queue_helper(farm_id=reusable_farm_id)
     return queue["queueId"]
  
-
-# Stop Queue Fleet Association. Attempts to transition from ACTIVE to Stopped with Cancel Work.
 def stop_queue_fleet_associations_and_wait(
-    deadline_client: BaseClient, farm_id: str, queue_id: str, fleet_id: str
+    deadline_client: BaseClient, 
+    farm_id: str, 
+    queue_id: str, 
+    fleet_id: str
 ) -> None:
     """
     Stop Queue Fleet Association. Attempts to transition from ACTIVE to STOP_SCHEDULING_AND_CANCEL_TASKS.
     Checks current status first and only updates if it's ACTIVE.
+    
+    Args:
+        deadline_client: The Deadline Cloud client
+        farm_id: The farm ID
+        queue_id: The queue ID
+        fleet_id: The fleet ID
     """
     try:
         # First get the current status
@@ -1142,17 +1390,21 @@ def stop_queue_fleet_associations_and_wait(
         raise
 
 @pytest.fixture(scope="session")
-def deadline_worker_agent(reusable_farm_id, reusable_fleet_id):
+def deadline_worker_agent(
+    reusable_farm_id: str, 
+    reusable_fleet_id: str
+) -> Generator[Tuple[subprocess.Popen, str], None, None]:
     """
     Launch deadline-worker-agent as a subprocess using the farm ID and fleet ID from our tests.
+    
     This fixture is session-scoped and ensures the worker agent is stopped during cleanup.
 
     Args:
         reusable_farm_id: The farm ID to use
         reusable_fleet_id: The fleet ID to use
 
-    Returns:
-        subprocess.Popen: The worker agent process
+    Yields:
+        Tuple containing (worker_agent_process, log_file_path)
     """
     import subprocess
     import time
@@ -1291,6 +1543,19 @@ def reusable_queue_fleet_association(
     reusable_fleet_id: str,
     request
 ) -> Generator[Tuple[str, str, str], None, None]:
+    """
+    Fixture that provides a queue-fleet association, creating one if it doesn't exist.
+    
+    Args:
+        deadline_client: The Deadline Cloud client
+        reusable_farm_id: The farm ID
+        reusable_queue_id: The queue ID
+        reusable_fleet_id: The fleet ID
+        request: The pytest request object
+        
+    Yields:
+        Tuple containing (farm_id, queue_id, fleet_id)
+    """
     association_exists = False
     
     # Check if association already exists
