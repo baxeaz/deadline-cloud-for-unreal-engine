@@ -42,12 +42,16 @@ def setup_logging() -> None:
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s - %(message)s", datefmt="%H:%M:%S")
     console_handler.setFormatter(formatter)
 
-    # Add handler to logger
-    logger.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
-
-    # Prevent log messages from being passed to the root logger
-    logger.propagate = False
+    # Configure the root logger so all module loggers inherit this configuration
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # Remove any existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Add the console handler to the root logger
+    root_logger.addHandler(console_handler)
 
 
 # Set up logging when this module is imported
@@ -160,14 +164,7 @@ def cancel_pending_jobs(deadline_client: BaseClient, farm_id: str, queue_id: str
 
         # Cancel any active jobs
         for job_id in jobs_to_cancel:
-            try:
-                logger.info(f"Canceling job {job_id}...")
-                deadline_client.update_job(
-                    farmId=farm_id, queueId=queue_id, jobId=job_id, status="CANCELED"
-                )
-                logger.info(f"✓ Successfully canceled job {job_id}")
-            except Exception as e:
-                logger.warning(f"Failed to cancel job {job_id}: {str(e)}")
+            cancel_job(deadline_client, farm_id, queue_id, job_id)
 
         if not jobs_to_cancel:
             logger.info(f"No active jobs found in queue {queue_id}")
@@ -179,6 +176,39 @@ def cancel_pending_jobs(deadline_client: BaseClient, farm_id: str, queue_id: str
         import traceback
 
         logger.warning(f"Traceback: {traceback.format_exc()}")
+
+
+def cancel_job(
+    deadline_client: BaseClient, 
+    farm_id: str, 
+    queue_id: str, 
+    job_id: str
+) -> bool:
+    """
+    Cancel a specific job in Deadline Cloud.
+    
+    Args:
+        deadline_client: Boto3 Deadline client
+        farm_id: The farm ID containing the job
+        queue_id: The queue ID containing the job
+        job_id: The job ID to cancel
+        
+    Returns:
+        bool: True if cancellation was successful, False otherwise
+    """
+    logger.info(f"Canceling job {job_id}...")
+    try:
+        deadline_client.update_job(
+            farmId=farm_id, 
+            queueId=queue_id, 
+            jobId=job_id, 
+            status="CANCELED"
+        )
+        logger.info(f"Successfully canceled job {job_id}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to cancel job {job_id}: {str(e)}")
+        return False
 
 
 def pytest_addoption(parser) -> None:

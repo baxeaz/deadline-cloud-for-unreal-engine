@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import logging
-from conftest import extract_job_info_from_test_output, wait_for_job_state
+from conftest import extract_job_info_from_test_output, wait_for_job_state, cancel_job
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +36,4 @@ def test_create_job(deadline_client, build_plugin, create_readonly_test_project,
     
     # Once the job is in READY state, cancel it since test_worker_agent.py will handle the full job execution
     logger.info(f"Job {job_id} is in READY state, canceling it...")
-    try:
-        deadline_client.update_job(
-            farmId=farm_id, 
-            queueId=queue_id, 
-            jobId=job_id, 
-            status="CANCELED"
-        )
-        logger.info(f"Successfully canceled job {job_id}")
-    except Exception as e:
-        logger.warning(f"Failed to cancel job {job_id}: {str(e)}")
-        # Don't fail the test if cancellation fails
+    cancel_job(deadline_client, farm_id, queue_id, job_id)
