@@ -1343,7 +1343,7 @@ def create_queue_helper(
 
 @pytest.fixture(scope="session")
 def reusable_queue_id(
-    create_queue_helper: Callable[[str, Optional[str], Optional[Dict[str, Any]]], Dict[str, Any]],
+    create_queue_helper,
     reusable_farm_id: str,
     request,
 ) -> str:
@@ -1358,7 +1358,7 @@ def reusable_queue_id(
     Returns:
         The queue ID
     """
-    queue = create_queue_helper(farmId=reusable_farm_id)
+    queue = create_queue_helper(farm_id=reusable_farm_id)
     return queue["queueId"]
 
 
