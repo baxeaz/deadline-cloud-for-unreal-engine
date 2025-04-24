@@ -15,6 +15,7 @@ import logging
 import pytest
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -1357,7 +1358,7 @@ def reusable_queue_id(
     Returns:
         The queue ID
     """
-    queue = create_queue_helper(farm_id=reusable_farm_id)
+    queue = create_queue_helper(farmId=reusable_farm_id)
     return queue["queueId"]
 
 
@@ -1562,7 +1563,7 @@ def deadline_worker_agent(
     try:
         if sys.platform == "win32":
             # On Windows, send Ctrl+C to the process group
-            process.send_signal(subprocess.signal.CTRL_C_EVENT)
+            process.send_signal(signal.CTRL_C_EVENT)
             # Give it some time to shut down gracefully
             try:
                 process.wait(timeout=10)
@@ -1572,23 +1573,20 @@ def deadline_worker_agent(
         else:
             # On Unix, kill the process group
             if hasattr(os, "killpg") and hasattr(os, "getpgid"):
-                import signal
-
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                 # Give it some time to shut down gracefully
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     # Force kill if it doesn't respond to SIGTERM
-                    import signal
-
                     if hasattr(signal, "SIGKILL"):
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                     else:
                         # Fallback if SIGKILL is not available
                         process.kill()
                 # Force kill if it doesn't respond to SIGTERM
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                if hasattr(signal, "SIGKILL"):
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except Exception as e:
         logger.error(f"Error stopping worker agent: {str(e)}")
 
