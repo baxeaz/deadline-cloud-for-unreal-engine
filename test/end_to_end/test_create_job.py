@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 def test_create_job(deadline_client, build_plugin, create_readonly_test_project, run_unreal_test):
-    """Run CreateJob automation test from within Unreal and monitor job status"""
+    """Run CreateJob automation test from within Unreal and monitor job status until READY, then cancel it"""
 
     _, uproject_file = create_readonly_test_project
 
@@ -33,3 +33,17 @@ def test_create_job(deadline_client, build_plugin, create_readonly_test_project,
         wait_interval=5,
     )
     assert success
+    
+    # Once the job is in READY state, cancel it since test_worker_agent.py will handle the full job execution
+    logger.info(f"Job {job_id} is in READY state, canceling it...")
+    try:
+        deadline_client.update_job(
+            farmId=farm_id, 
+            queueId=queue_id, 
+            jobId=job_id, 
+            status="CANCELED"
+        )
+        logger.info(f"Successfully canceled job {job_id}")
+    except Exception as e:
+        logger.warning(f"Failed to cancel job {job_id}: {str(e)}")
+        # Don't fail the test if cancellation fails

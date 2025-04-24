@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import psutil
 from typing import Tuple, Optional
 
 DEFAULT_UE_INSTALL_ROOT = "C:\\Program Files\\Epic Games"
@@ -401,10 +402,41 @@ def long_paths_enabled() -> bool:
             return False
 
 
+def check_running_unreal_processes():
+    """
+    Check for running Unreal Engine processes that might interfere with the build.
+    
+    Returns:
+        bool: True if any Unreal processes are running, False otherwise
+    """
+    unreal_processes = []
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['name'] and (
+                proc.info['name'].lower() == 'unrealeditor.exe' or 
+                proc.info['name'].lower() == 'unrealeditor-cmd.exe'
+            ):
+                unreal_processes.append(proc.info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    
+    if unreal_processes:
+        logger.warning("WARNING: Found running Unreal Engine processes that may interfere with the build:")
+        for proc in unreal_processes:
+            logger.warning(f"  - {proc['name']} (PID: {proc['pid']})")
+        logger.warning("Consider closing these processes before building to avoid file locking issues.")
+        return True
+    
+    return False
+
+
 def check_configuration_warnings(engine_root: str):
     """
     Check for common configuration issues which may prevent successful jobs
     """
+    # Check for running Unreal processes
+    check_running_unreal_processes()
+    
     if long_paths_enabled():
         logger.info("Long paths are enabled")
     else:
