@@ -15,16 +15,14 @@ import logging
 import pytest
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import time
-import platform
 from scripts.build_plugin import find_engine_root
 
 # Import typing information
 from botocore.client import BaseClient
-from typing import Any, Callable, Dict, Generator, List, Tuple, Optional, Union
+from typing import Any, Callable, Dict, Generator, List, Tuple, Optional
 
 # Configure logger to make resource reuse/creation messages stand out
 logger = logging.getLogger(__name__)
@@ -1440,15 +1438,13 @@ def deadline_worker_agent(
     """
     import subprocess
     import time
-    import signal
     import os
-    import platform
     import datetime
     import shutil
 
     # Check if deadline-worker-agent is available using 'where' or 'which'
     try:
-        if platform.system() == "Windows":
+        if sys.platform == "win32":
             result = subprocess.run(
                 ["where", "deadline-worker-agent"],
                 check=True,
@@ -1510,7 +1506,7 @@ def deadline_worker_agent(
     logger.info(f"Worker agent logs will be written to: {log_file}")
 
     # Use different process creation flags based on platform
-    if platform.system() == "Windows":
+    if sys.platform == "win32":
         # On Windows, create a new process group so we can terminate it and all children
         with open(log_file, "w") as f:
             process = subprocess.Popen(
@@ -1564,9 +1560,9 @@ def deadline_worker_agent(
     logger.info(f"Stopping deadline-worker-agent (PID: {process.pid})")
 
     try:
-        if platform.system() == "Windows":
+        if sys.platform == "win32":
             # On Windows, send Ctrl+C to the process group
-            process.send_signal(signal.CTRL_C_EVENT)
+            process.send_signal(subprocess.signal.CTRL_C_EVENT)
             # Give it some time to shut down gracefully
             try:
                 process.wait(timeout=10)
@@ -1576,12 +1572,14 @@ def deadline_worker_agent(
         else:
             # On Unix, kill the process group
             if hasattr(os, 'killpg') and hasattr(os, 'getpgid'):
+                import signal
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                 # Give it some time to shut down gracefully
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     # Force kill if it doesn't respond to SIGTERM
+                    import signal
                     if hasattr(signal, 'SIGKILL'):
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                     else:
