@@ -12,6 +12,7 @@ if "PYTHONPATH" in os.environ:
         if p not in sys.path:
             sys.path.insert(0, p.replace("\\", "/"))
 
+
 def add_deadline_parent_to_path():
     # Get the directory of the current module
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,10 +31,11 @@ def add_deadline_parent_to_path():
 
     return False
 
+
 # Call the function
 added = add_deadline_parent_to_path()
 if added:
-    print(f"Added deadline parent directory to sys.path")
+    print("Added deadline parent directory to sys.path")
 
 for p in sys.path:
     print(f"sys.path has element {p}")

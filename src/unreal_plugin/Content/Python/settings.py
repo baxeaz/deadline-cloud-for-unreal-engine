@@ -78,13 +78,13 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
             # Add debugging to see what's causing the error
             logger.info(f"aws_profile_name type: {type(aws_profile_name)}")
             logger.info(f"aws_profile_name value: {aws_profile_name}")
-            
+
             if isinstance(aws_profile_name, list):
                 # Handle the case where it's a list instead of a string
                 logger.warning(f"aws_profile_name is a list: {aws_profile_name}")
                 # Use the first item if available, otherwise use a default
                 aws_profile_name = aws_profile_name[0] if aws_profile_name else "(default)"
-            
+
             if aws_profile_name in ["(default)", "default", ""]:
                 aws_profile_name = "(default)"
 
@@ -112,8 +112,8 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
                     storage_profile_entity.name
                 )
 
-            self.work_station_configuration.farm.job_attachment_filesystem_options = config.get_setting(
-                "defaults.job_attachments_file_system"
+            self.work_station_configuration.farm.job_attachment_filesystem_options = (
+                config.get_setting("defaults.job_attachments_file_system")
             )
 
             self.work_station_configuration.general.auto_accept_confirmation_prompts = (
@@ -132,6 +132,7 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
             logger.error(f"Error in __refresh_deadline_settings: {str(e)}")
             logger.error(f"Error type: {type(e).__name__}")
             import traceback
+
             logger.error(f"Traceback: {traceback.format_exc()}")
             # Continue with default values if there's an error
             self.work_station_configuration.global_settings.aws_profile = "(default)"
