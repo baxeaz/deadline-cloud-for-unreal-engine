@@ -202,7 +202,7 @@ def cancel_job(
             farmId=farm_id, 
             queueId=queue_id, 
             jobId=job_id, 
-            status="CANCELED"
+            targetTaskRunStatus="CANCELED"
         )
         logger.info(f"Successfully canceled job {job_id}")
         return True
