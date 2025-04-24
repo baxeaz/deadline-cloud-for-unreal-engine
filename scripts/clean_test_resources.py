@@ -26,6 +26,7 @@ DEADLINE_UNREAL_QUEUE_TEST_ROLE = "DeadlineUnrealQueueTestRole"
 DEADLINE_UNREAL_FLEET_TEST_ROLE = "DeadlineUnrealFleetTestRole"
 DEADLINE_UNREAL_TEST_QUEUE_NAME = "deadline-unreal-test-queue"
 DEADLINE_UNREAL_TEST_FLEET_NAME = "deadline-unreal-test-fleet"
+DEADLINE_UNREAL_TEST_FARM_NAME = "deadline-unreal-test-farm"
 
 
 def wait_for_qfa_stopped_status(deadline_client, farm_id, queue_id, fleet_id, max_wait_seconds=60):
@@ -250,9 +251,26 @@ def cleanup_resources(farm_id, dry_run=False):
             except Exception as e:
                 logger.error(f"Error deleting fleet {fleet_id}: {e}")
 
+    # Step 6: Check if this is a test farm that should be deleted
+    try:
+        farm_response = deadline_client.get_farm(farmId=farm_id)
+        if farm_response.get("displayName") == DEADLINE_UNREAL_TEST_FARM_NAME:
+            logger.info(f"Found test farm {farm_id} ({DEADLINE_UNREAL_TEST_FARM_NAME})")
+            
+            if not dry_run:
+                try:
+                    deadline_client.delete_farm(farmId=farm_id)
+                    logger.info(f"Deleted test farm {farm_id}")
+                except Exception as e:
+                    logger.error(f"Error deleting test farm {farm_id}: {e}")
+        else:
+            logger.info(f"Farm {farm_id} is not a test farm, skipping deletion")
+    except Exception as e:
+        logger.error(f"Error checking farm {farm_id}: {e}")
+
     logger.info("Cleanup completed")
 
-    # Step 6: Delete IAM roles
+    # Step 7: Delete IAM roles
     logger.info("Checking for test IAM roles...")
 
     # Delete queue test role
