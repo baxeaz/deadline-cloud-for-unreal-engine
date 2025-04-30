@@ -73,49 +73,68 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
 
     def __refresh_deadline_settings(self):
         # TODO handle case when user is not logged in
-        aws_profile_name = config.get_setting("defaults.aws_profile_name")
-        if aws_profile_name in ["(default)", "default", ""]:
-            aws_profile_name = "(default)"
+        try:
+            aws_profile_name = config.get_setting("defaults.aws_profile_name")
+            logger.info(f"aws_profile_name type: {type(aws_profile_name)}")
+            logger.info(f"aws_profile_name value: {aws_profile_name}")
 
-        self.work_station_configuration.global_settings.aws_profile = aws_profile_name
+            if isinstance(aws_profile_name, list):
+                # Handle the case where it's a list instead of a string
+                logger.warning(f"aws_profile_name is a list: {aws_profile_name}")
+                # Use the first item if available, otherwise use a default
+                aws_profile_name = aws_profile_name[0] if aws_profile_name else "(default)"
 
-        self.work_station_configuration.profile.job_history_dir.path = config.get_setting(
-            "settings.job_history_dir"
-        ).replace("\\", "/")
+            if aws_profile_name in ["(default)", "default", ""]:
+                aws_profile_name = "(default)"
 
-        farm_id = config.get_setting("defaults.farm_id")
-        farm_entity = self.find_farm_by_id(farm_id)
+            self.work_station_configuration.global_settings.aws_profile = aws_profile_name
 
-        if farm_entity is not None:
-            self.work_station_configuration.profile.default_farm = farm_entity.name
+            self.work_station_configuration.profile.job_history_dir.path = config.get_setting(
+                "settings.job_history_dir"
+            ).replace("\\", "/")
 
-        queue_id = config.get_setting("defaults.queue_id")
-        queue_entity = self.find_queue_by_id(queue_id)
-        if queue_entity is not None:
-            self.work_station_configuration.farm.default_queue = queue_entity.name
+            farm_id = config.get_setting("defaults.farm_id")
+            farm_entity = self.find_farm_by_id(farm_id)
 
-        storage_profile_id = config.get_setting("settings.storage_profile_id")
-        storage_profile_entity = self.find_storage_profile_by_id(storage_profile_id)
-        if storage_profile_entity is not None:
-            self.work_station_configuration.farm.default_storage_profile = (
-                storage_profile_entity.name
+            if farm_entity is not None:
+                self.work_station_configuration.profile.default_farm = farm_entity.name
+
+            queue_id = config.get_setting("defaults.queue_id")
+            queue_entity = self.find_queue_by_id(queue_id)
+            if queue_entity is not None:
+                self.work_station_configuration.farm.default_queue = queue_entity.name
+
+            storage_profile_id = config.get_setting("settings.storage_profile_id")
+            storage_profile_entity = self.find_storage_profile_by_id(storage_profile_id)
+            if storage_profile_entity is not None:
+                self.work_station_configuration.farm.default_storage_profile = (
+                    storage_profile_entity.name
+                )
+
+            self.work_station_configuration.farm.job_attachment_filesystem_options = (
+                config.get_setting("defaults.job_attachments_file_system")
             )
 
-        self.work_station_configuration.farm.job_attachment_filesystem_options = config.get_setting(
-            "defaults.job_attachments_file_system"
-        )
+            self.work_station_configuration.general.auto_accept_confirmation_prompts = (
+                True if config.get_setting("settings.auto_accept") == "true" else False
+            )
 
-        self.work_station_configuration.general.auto_accept_confirmation_prompts = (
-            True if config.get_setting("settings.auto_accept") == "true" else False
-        )
+            self.work_station_configuration.general.conflict_resolution_option = config.get_setting(
+                "settings.conflict_resolution"
+            )
 
-        self.work_station_configuration.general.conflict_resolution_option = config.get_setting(
-            "settings.conflict_resolution"
-        )
+            self.work_station_configuration.general.current_logging_level = config.get_setting(
+                "settings.log_level"
+            )
+        except Exception as e:
+            # Add comprehensive error logging
+            logger.error(f"Error in __refresh_deadline_settings: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
 
-        self.work_station_configuration.general.current_logging_level = config.get_setting(
-            "settings.log_level"
-        )
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Continue with default values if there's an error
+            self.work_station_configuration.global_settings.aws_profile = "(default)"
 
     @unreal.ufunction(ret=unreal.Array(str))
     def get_aws_profiles(self):
@@ -240,10 +259,58 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
             return
 
         if property_name == "DefaultFarm":
-            farm = self.find_farm_by_name(self.work_station_configuration.profile.default_farm)
+            farm_value = self.work_station_configuration.profile.default_farm
+            logger.info(f"Farm value: {farm_value}")
+            
+            # First try to find by name (prioritize name lookup)
+            farm = self.find_farm_by_name(farm_value)
             if farm is not None:
-                config.set_setting("defaults.farm_id", farm.id)
+                # Found by name, use the ID
+                current_farm_id = config.get_setting("defaults.farm_id")
+                if current_farm_id != farm.id:
+                    logger.info(f"Found farm with name {farm_value}, setting ID: {farm.id}")
+                    config.set_setting("defaults.farm_id", farm.id)
+                else:
+                    logger.info(f"Farm ID unchanged (already {farm.id}), skipping update")
+            # If not found by name and it looks like an ID, use it directly
+            elif farm_value.startswith("farm-"):
+                current_farm_id = config.get_setting("defaults.farm_id")
+                if current_farm_id != farm_value:
+                    logger.info(f"Farm value appears to be an ID, setting directly: {farm_value}")
+                    config.set_setting("defaults.farm_id", farm_value)
+                else:
+                    logger.info(f"Farm ID unchanged (already {farm_value}), skipping update")
+            else:
+                logger.warning(f"Could not find farm with name: {farm_value}")
+
             self.refresh_from_default_profile()
+            return
+
+        # Handle DefaultQueue property similarly to farm
+        if property_name == "DefaultQueue":
+            queue_value = self.work_station_configuration.farm.default_queue
+            logger.info(f"Queue value: {queue_value}")
+
+            # First try to find by name (prioritize name lookup)
+            queue = self.find_queue_by_name(queue_value)
+            if queue is not None:
+                # Found by name, use the ID
+                current_queue_id = config.get_setting("defaults.queue_id")
+                if current_queue_id != queue.id:
+                    logger.info(f"Found queue with name {queue_value}, setting ID: {queue.id}")
+                    config.set_setting("defaults.queue_id", queue.id)
+                else:
+                    logger.info(f"Queue ID unchanged (already {queue.id}), skipping update")
+            # If not found by name and it looks like an ID, use it directly
+            elif queue_value.startswith("queue-"):
+                current_queue_id = config.get_setting("defaults.queue_id")
+                if current_queue_id != queue_value:
+                    logger.info(f"Queue value appears to be an ID, setting directly: {queue_value}")
+                    config.set_setting("defaults.queue_id", queue_value)
+                else:
+                    logger.info(f"Queue ID unchanged (already {queue_value}), skipping update")
+            else:
+                logger.warning(f"Could not find queue with name: {queue_value}")
             return
 
         self.save_to_file()

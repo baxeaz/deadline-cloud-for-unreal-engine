@@ -115,12 +115,10 @@ def get_current_farm_id():
                 farm_id = farm.get("farmId")
                 logger.info(f"Found test farm: {farm_id}")
                 return farm_id
-
         logger.info("No test farm found, checking current farm from config")
     except Exception as e:
         logger.warning(f"Error checking for test farms: {e}")
         logger.info("Falling back to current farm from config")
-
     # If no test farm found, get the current farm from config
     try:
         result = subprocess.run(
@@ -285,7 +283,6 @@ def cleanup_resources(farm_id, dry_run=False):
         farm_response = deadline_client.get_farm(farmId=farm_id)
         if farm_response.get("displayName") == DEADLINE_UNREAL_TEST_FARM_NAME:
             logger.info(f"Found test farm {farm_id} ({DEADLINE_UNREAL_TEST_FARM_NAME})")
-
             if not dry_run:
                 try:
                     deadline_client.delete_farm(farmId=farm_id)

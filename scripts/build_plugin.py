@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import psutil
 from typing import Tuple, Optional
 
 DEFAULT_UE_INSTALL_ROOT = "C:\\Program Files\\Epic Games"
@@ -29,28 +30,33 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 
 
-def find_latest_unreal_engine(folder: str) -> str:
+def find_unreal_engine(folder: str, version: Optional[str] = None) -> str:
     """
-    Finds the latest version in the given folder by searching for all subfolders which begin with "UE_" and comparing the
-    version strings which come after the underscore
+    Finds a version in the given folder by searching for all subfolders which begin with "UE_" and comparing the
+    version strings which come after the underscore, or checking against a specified version
 
     :param folder: Root UE install folder to list for UE_<version> Unreal Engine version installations
+    :param version: Specific version string to check for, e.g. 5.2
 
     :return: Path to root of latest Unreal Engine installation in folder
     """
 
+    logger.info(f"Searching for UE with version {version}")
     if not os.path.exists(folder):
         raise Exception(f"Could not find Unreal Engine install folder at {folder}")
 
-    # Default to 5.2 if no other versions are found
-    latest_version = "5.2"
-    for subfolder in os.listdir(folder):
-        if subfolder.startswith("UE_"):
-            version = subfolder.split("_")[1]
-            if version > latest_version:
-                latest_version = version
+    if version:
+        check_version = version
+    else:
+        # Default to 5.2 if no other versions are found
+        check_version = "5.2"
+        for subfolder in os.listdir(folder):
+            if subfolder.startswith("UE_"):
+                version = subfolder.split("_")[1]
+                if version > check_version:
+                    check_version = version
 
-    engine_root = os.path.join(folder, "UE_" + latest_version)
+    engine_root = os.path.join(folder, "UE_" + check_version)
     if not os.path.exists(os.path.join(engine_root, "Engine")):
         raise Exception(
             f"Could not find Unreal Engine folder at {engine_root}, please supply an --engine-root to a valid Unreal installation (Should contain an Engine subfolder) or set UE_INSTALL_ROOT to "
@@ -221,7 +227,7 @@ def install_whl_global(whl_path: str):
     logger.info(f"Install result: {result.returncode}")
 
 
-def find_engine_root() -> str:
+def find_engine_root(version: Optional[str] = None) -> str:
     """
     Find the latest version of Unreal Engine
 
@@ -230,7 +236,7 @@ def find_engine_root() -> str:
 
     ue_install_root = os.environ.get("UE_INSTALL_ROOT", DEFAULT_UE_INSTALL_ROOT)
     ue_install_root = os.path.expanduser(ue_install_root)
-    return find_latest_unreal_engine(ue_install_root)
+    return find_unreal_engine(ue_install_root, version)
 
 
 def find_runuat(engine_root: str) -> str:
@@ -396,10 +402,45 @@ def long_paths_enabled() -> bool:
             return False
 
 
+def check_running_unreal_processes():
+    """
+    Check for running Unreal Engine processes that might interfere with the build.
+
+    Returns:
+        bool: True if any Unreal processes are running, False otherwise
+    """
+    unreal_processes = []
+    for proc in psutil.process_iter(["pid", "name"]):
+        try:
+            if proc.info["name"] and (
+                proc.info["name"].lower() == "unrealeditor.exe"
+                or proc.info["name"].lower() == "unrealeditor-cmd.exe"
+            ):
+                unreal_processes.append(proc.info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    if unreal_processes:
+        logger.warning(
+            "WARNING: Found running Unreal Engine processes that may interfere with the build:"
+        )
+        for proc in unreal_processes:
+            logger.warning(f"  - {proc['name']} (PID: {proc['pid']})")
+        logger.warning(
+            "Consider closing these processes before building to avoid file locking issues."
+        )
+        return True
+
+    return False
+
+
 def check_configuration_warnings(engine_root: str):
     """
     Check for common configuration issues which may prevent successful jobs
     """
+    # Check for running Unreal processes
+    check_running_unreal_processes()
+
     if long_paths_enabled():
         logger.info("Long paths are enabled")
     else:
@@ -425,6 +466,7 @@ def build_and_install(
     worker: bool = False,
     binaries: bool = True,
     test: bool = False,
+    version: str = "",
 ):
     """
     Build the plugin and optionally install it to the given Unreal Engine installation
@@ -436,13 +478,14 @@ def build_and_install(
     :param worker: Whether to install the plugin as a worker plugin to the global python interpreter
     :param binaries: Should binaries be included in the installation
     :param test: Should test content be included in the plugin installation
+    :param version: Specific version to use if found
     """
 
     logger.info("Beginning build...")
 
     # Find the latest version of Unreal Engine
     if not engine_root:
-        engine_root = find_engine_root()
+        engine_root = find_engine_root(version)
 
     check_configuration_warnings(engine_root)
 
@@ -479,6 +522,11 @@ def main():
         "--engine-root",
         type=str,
         help="Path to the root of the Unreal Engine installation.  Attempts to find latest version if not provided.",
+    )
+    parser.add_argument(
+        "--ueversion",
+        type=str,
+        help="Assuming default engine root, attempts to find the given version within",
     )
     parser.add_argument(
         "--uplugin-path",
@@ -521,6 +569,7 @@ def main():
         worker=args.worker,
         binaries=not args.no_binaries,
         test=args.test,
+        version=args.ueversion,
     )
 
 

@@ -23,6 +23,14 @@ hatch build
 hatch run test
 ```
 
+### Run E2E tests
+
+End to end tests validate a more complete render job workflow than our unit tests.  They create associated test resouces and attempt to submit and run jobs locally.
+
+```bash
+hatch run e2e -s
+```
+
 ### Run linting
 
 ```bash
@@ -43,7 +51,7 @@ hatch run all:test
 
 ### Testing C++ Changes
 
-When making C++ changes before testing you'll need to rebuild and copy your modified plugin to your Unreal plugins folder following [these steps](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER_CMF.md#build-the-plugin).
+When making C++ changes before testing you'll need to rebuild and copy your modified plugin to your Unreal plugins folder following [these steps](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER_CMF.md#build-the-plugin) OR run the end to end tests (hatch run e2e -s) which builds and install both the C++ and python code.
 
 
 ### Testing Python Changes

@@ -102,7 +102,7 @@ There are 4 ways to install the required Python dependencies.
 			"Platform": "All",
 			"Requirements":
 			[
-				"deadline-cloud-for-unreal-engine>=0.3.0"
+				"deadline-cloud-for-unreal-engine>=0.5.0"
 			]
 		}
 	]
