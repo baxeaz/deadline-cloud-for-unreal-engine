@@ -33,10 +33,14 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         mock_farm.name = "Test Farm"
         settings.find_farm_by_name.return_value = mock_farm
         
-        # Call the method
+        # First call the method with a test property to see if it's called at all
+        settings.on_settings_modified("TestProperty")
+        
+        # Then call the method with the property we want to test
         settings.on_settings_modified("DefaultFarm")
         
-        # Verify that logger.info was called with the expected message
+        # Verify that logger.info was called with both property names
+        mock_logger.info.assert_any_call("Changed property: TestProperty")
         mock_logger.info.assert_any_call("Changed property: DefaultFarm")
         
         # Verify that find_farm_by_name was called with the correct name

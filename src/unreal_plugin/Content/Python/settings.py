@@ -245,7 +245,12 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
         2. When we change "default farm" we need to pull default queue,
            default storage profile, and job attachment fs options
         """
+        print(f"DEBUG: on_settings_modified called with property_name={property_name}")
         logger.info(f"Changed property: {property_name}")
+        
+        # This means we need to change default profile
+        # If the default profile is changed then we update it in the config first
+        # after that we need to save this setting first and read settings for all other values
 
         # This means we need to change default profile
         # If the default profile is changed then we update it in the config first
