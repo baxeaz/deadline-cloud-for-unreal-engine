@@ -10,13 +10,9 @@ class TestDeadlineCloudSettings(unittest.TestCase):
     @patch('src.unreal_plugin.Content.Python.settings.logger')
     def test_farm_lookup_by_name(self, mock_logger, mock_config):
         """Test that farms are correctly looked up by name."""
-        # Import the module inside the test to avoid affecting other tests
+        # Import the module with minimal patching
         with patch('src.unreal_plugin.Content.Python.settings.unreal'):
-            with patch('src.unreal_plugin.Content.Python.settings.boto3'):
-                with patch('src.unreal_plugin.Content.Python.settings.api'):
-                    with patch('src.unreal_plugin.Content.Python.settings.config_file'):
-                        with patch('src.unreal_plugin.Content.Python.settings.FileConflictResolution'):
-                            from src.unreal_plugin.Content.Python.settings import DeadlineCloudDeveloperSettingsImplementation
+            from src.unreal_plugin.Content.Python.settings import DeadlineCloudDeveloperSettingsImplementation
         
         # Create the settings object
         settings = DeadlineCloudDeveloperSettingsImplementation()
@@ -39,6 +35,9 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         
         # Call the method
         settings.on_settings_modified("DefaultFarm")
+        
+        # Verify that logger.info was called with the expected message
+        mock_logger.info.assert_any_call("Changed property: DefaultFarm")
         
         # Verify that find_farm_by_name was called with the correct name
         settings.find_farm_by_name.assert_called_with("Test Farm")
