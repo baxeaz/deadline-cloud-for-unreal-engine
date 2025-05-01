@@ -304,12 +304,12 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
 
         self.save_to_file()
 
-    @unreal.ufunction(ret=str)
+    @unreal.ufunction(ret=str, override=True)
     def get_farm_name_by_id(self, farm_id):
         farm = self.find_farm_by_id(farm_id)
         return farm.name if farm is not None else ""
 
-    @unreal.ufunction(ret=str)
+    @unreal.ufunction(ret=str, override=True)
     def get_queue_name_by_id(self, queue_id):
         queue = self.find_queue_by_id(queue_id)
         return queue.name if queue is not None else ""
