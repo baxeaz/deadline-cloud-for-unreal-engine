@@ -210,3 +210,73 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         
         # Verify that config.set_setting was called with the correct queue ID
         mock_config.set_setting.assert_called_with("defaults.queue_id", "queue-abcde")
+    @patch('src.unreal_plugin.Content.Python.settings.config')
+    @patch('src.unreal_plugin.Content.Python.settings.logger')
+    def test_farm_not_found(self, mock_logger, mock_config):
+        """Test handling of farm names that don't exist."""
+        # Import the module inside the test to avoid affecting other tests
+        from src.unreal_plugin.Content.Python.settings import DeadlineCloudDeveloperSettingsImplementation
+        
+        # Create the settings object
+        settings = DeadlineCloudDeveloperSettingsImplementation()
+        
+        # Mock the find_farm_by_name method
+        settings.find_farm_by_name = MagicMock()
+        settings.refresh_from_default_profile = MagicMock()
+        
+        # Set up the test
+        settings.work_station_configuration = MagicMock()
+        settings.work_station_configuration.profile = MagicMock()
+        settings.work_station_configuration.profile.default_farm = "Non-existent Farm"
+        
+        # Set up the mock to return None when find_farm_by_name is called
+        settings.find_farm_by_name.return_value = None
+        
+        # Call the method
+        settings.on_settings_modified("DefaultFarm")
+        
+        # Verify that find_farm_by_name was called with the name
+        settings.find_farm_by_name.assert_called_with("Non-existent Farm")
+        
+        # Verify that a warning was logged
+        mock_logger.warning.assert_called_with("Could not find farm with name: Non-existent Farm")
+        
+        # Verify that config.set_setting was not called
+        mock_config.set_setting.assert_not_called()
+
+    @patch('src.unreal_plugin.Content.Python.settings.config')
+    @patch('src.unreal_plugin.Content.Python.settings.logger')
+    def test_queue_not_found(self, mock_logger, mock_config):
+        """Test handling of queue names that don't exist."""
+        # Import the module inside the test to avoid affecting other tests
+        from src.unreal_plugin.Content.Python.settings import DeadlineCloudDeveloperSettingsImplementation
+        
+        # Create the settings object
+        settings = DeadlineCloudDeveloperSettingsImplementation()
+        
+        # Mock the find_queue_by_name method
+        settings.find_queue_by_name = MagicMock()
+        
+        # Set up the test
+        settings.work_station_configuration = MagicMock()
+        settings.work_station_configuration.farm = MagicMock()
+        settings.work_station_configuration.farm.default_queue = "Non-existent Queue"
+        
+        # Set up the mock to return None when find_queue_by_name is called
+        settings.find_queue_by_name.return_value = None
+        
+        # Call the method
+        settings.on_settings_modified("DefaultQueue")
+        
+        # Verify that find_queue_by_name was called with the name
+        settings.find_queue_by_name.assert_called_with("Non-existent Queue")
+        
+        # Verify that a warning was logged
+        mock_logger.warning.assert_called_with("Could not find queue with name: Non-existent Queue")
+        
+        # Verify that config.set_setting was not called
+        mock_config.set_setting.assert_not_called()
+
+
+if __name__ == '__main__':
+    unittest.main()
