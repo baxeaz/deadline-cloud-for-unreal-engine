@@ -208,5 +208,11 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = DeadlineCloud)
 	void Logout();
 
+	/** Get farm name by its ID */
+	UFUNCTION(BlueprintImplementableEvent, Category = DeadlineCloud)
+	FString GetFarmNameById(const FString& FarmId);
 
+	/** Get queue name by its ID */
+	UFUNCTION(BlueprintImplementableEvent, Category = DeadlineCloud)
+	FString GetQueueNameById(const FString& QueueId);
 };

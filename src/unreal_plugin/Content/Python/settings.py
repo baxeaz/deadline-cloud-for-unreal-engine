@@ -267,7 +267,7 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
             farm_value = self.work_station_configuration.profile.default_farm
             logger.info(f"Farm value: {farm_value}")
             
-            # First try to find by name (prioritize name lookup)
+            # Always treat the value as a name first
             farm = self.find_farm_by_name(farm_value)
             if farm is not None:
                 # Found by name, use the ID
@@ -277,14 +277,6 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
                     config.set_setting("defaults.farm_id", farm.id)
                 else:
                     logger.info(f"Farm ID unchanged (already {farm.id}), skipping update")
-            # If not found by name and it looks like an ID, use it directly
-            elif farm_value.startswith("farm-"):
-                current_farm_id = config.get_setting("defaults.farm_id")
-                if current_farm_id != farm_value:
-                    logger.info(f"Farm value appears to be an ID, setting directly: {farm_value}")
-                    config.set_setting("defaults.farm_id", farm_value)
-                else:
-                    logger.info(f"Farm ID unchanged (already {farm_value}), skipping update")
             else:
                 logger.warning(f"Could not find farm with name: {farm_value}")
 
@@ -296,7 +288,7 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
             queue_value = self.work_station_configuration.farm.default_queue
             logger.info(f"Queue value: {queue_value}")
 
-            # First try to find by name (prioritize name lookup)
+            # Always treat the value as a name
             queue = self.find_queue_by_name(queue_value)
             if queue is not None:
                 # Found by name, use the ID
@@ -306,19 +298,21 @@ class DeadlineCloudDeveloperSettingsImplementation(unreal.DeadlineCloudDeveloper
                     config.set_setting("defaults.queue_id", queue.id)
                 else:
                     logger.info(f"Queue ID unchanged (already {queue.id}), skipping update")
-            # If not found by name and it looks like an ID, use it directly
-            elif queue_value.startswith("queue-"):
-                current_queue_id = config.get_setting("defaults.queue_id")
-                if current_queue_id != queue_value:
-                    logger.info(f"Queue value appears to be an ID, setting directly: {queue_value}")
-                    config.set_setting("defaults.queue_id", queue_value)
-                else:
-                    logger.info(f"Queue ID unchanged (already {queue_value}), skipping update")
             else:
                 logger.warning(f"Could not find queue with name: {queue_value}")
             return
 
         self.save_to_file()
+
+    @unreal.ufunction(ret=str)
+    def get_farm_name_by_id(self, farm_id):
+        farm = self.find_farm_by_id(farm_id)
+        return farm.name if farm is not None else ""
+
+    @unreal.ufunction(ret=str)
+    def get_queue_name_by_id(self, queue_id):
+        queue = self.find_queue_by_id(queue_id)
+        return queue.name if queue is not None else ""
 
     def find_farm_by_id(self, farm_id):
         _ = self.get_farms()
