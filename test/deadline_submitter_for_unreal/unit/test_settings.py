@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 # We need to mock unreal module since it won't be available in test environment
 import sys
@@ -29,6 +29,8 @@ class TestDeadlineCloudSettings(unittest.TestCase):
             self._create_mock_entity("queue-67890", "Production Queue"),
             self._create_mock_entity("queue-abcde", "queue-named-like-id")
         ]
+        # Mock the refresh_from_default_profile method to prevent it from being called
+        self.settings.refresh_from_default_profile = MagicMock()
 
     def _create_mock_entity(self, entity_id, name):
         """Helper to create mock AWS entities."""
@@ -42,6 +44,7 @@ class TestDeadlineCloudSettings(unittest.TestCase):
     def test_farm_lookup_by_name(self, mock_logger, mock_config):
         """Test that farms are correctly looked up by name."""
         # Set up the test
+        mock_config.get_setting.return_value = "old-farm-id"  # Different from what we'll set
         self.settings.work_station_configuration = MagicMock()
         self.settings.work_station_configuration.profile.default_farm = "Test Farm"
         
@@ -49,13 +52,14 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         self.settings.on_settings_modified("DefaultFarm")
         
         # Verify that config.set_setting was called with the correct farm ID
-        mock_config.set_setting.assert_any_call("defaults.farm_id", "farm-12345")
+        mock_config.set_setting.assert_called_with("defaults.farm_id", "farm-12345")
         
     @patch('src.unreal_plugin.Content.Python.settings.config')
     @patch('src.unreal_plugin.Content.Python.settings.logger')
     def test_farm_lookup_by_id(self, mock_logger, mock_config):
         """Test that farm IDs are correctly handled."""
         # Set up the test
+        mock_config.get_setting.return_value = "old-farm-id"  # Different from what we'll set
         self.settings.work_station_configuration = MagicMock()
         self.settings.work_station_configuration.profile.default_farm = "farm-67890"
         
@@ -63,13 +67,14 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         self.settings.on_settings_modified("DefaultFarm")
         
         # Verify that config.set_setting was called with the correct farm ID
-        mock_config.set_setting.assert_any_call("defaults.farm_id", "farm-67890")
+        mock_config.set_setting.assert_called_with("defaults.farm_id", "farm-67890")
 
     @patch('src.unreal_plugin.Content.Python.settings.config')
     @patch('src.unreal_plugin.Content.Python.settings.logger')
     def test_farm_with_id_like_name(self, mock_logger, mock_config):
         """Test that farms with ID-like names are correctly handled."""
         # Set up the test
+        mock_config.get_setting.return_value = "old-farm-id"  # Different from what we'll set
         self.settings.work_station_configuration = MagicMock()
         self.settings.work_station_configuration.profile.default_farm = "farm-named-like-id"
         
@@ -77,13 +82,14 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         self.settings.on_settings_modified("DefaultFarm")
         
         # Verify that config.set_setting was called with the correct farm ID (should be farm-abcde)
-        mock_config.set_setting.assert_any_call("defaults.farm_id", "farm-abcde")
+        mock_config.set_setting.assert_called_with("defaults.farm_id", "farm-abcde")
 
     @patch('src.unreal_plugin.Content.Python.settings.config')
     @patch('src.unreal_plugin.Content.Python.settings.logger')
     def test_queue_lookup_by_name(self, mock_logger, mock_config):
         """Test that queues are correctly looked up by name."""
         # Set up the test
+        mock_config.get_setting.return_value = "old-queue-id"  # Different from what we'll set
         self.settings.work_station_configuration = MagicMock()
         self.settings.work_station_configuration.farm.default_queue = "Test Queue"
         
@@ -91,13 +97,14 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         self.settings.on_settings_modified("DefaultQueue")
         
         # Verify that config.set_setting was called with the correct queue ID
-        mock_config.set_setting.assert_any_call("defaults.queue_id", "queue-12345")
+        mock_config.set_setting.assert_called_with("defaults.queue_id", "queue-12345")
         
     @patch('src.unreal_plugin.Content.Python.settings.config')
     @patch('src.unreal_plugin.Content.Python.settings.logger')
     def test_queue_lookup_by_id(self, mock_logger, mock_config):
         """Test that queue IDs are correctly handled."""
         # Set up the test
+        mock_config.get_setting.return_value = "old-queue-id"  # Different from what we'll set
         self.settings.work_station_configuration = MagicMock()
         self.settings.work_station_configuration.farm.default_queue = "queue-67890"
         
@@ -105,13 +112,14 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         self.settings.on_settings_modified("DefaultQueue")
         
         # Verify that config.set_setting was called with the correct queue ID
-        mock_config.set_setting.assert_any_call("defaults.queue_id", "queue-67890")
+        mock_config.set_setting.assert_called_with("defaults.queue_id", "queue-67890")
 
     @patch('src.unreal_plugin.Content.Python.settings.config')
     @patch('src.unreal_plugin.Content.Python.settings.logger')
     def test_queue_with_id_like_name(self, mock_logger, mock_config):
         """Test that queues with ID-like names are correctly handled."""
         # Set up the test
+        mock_config.get_setting.return_value = "old-queue-id"  # Different from what we'll set
         self.settings.work_station_configuration = MagicMock()
         self.settings.work_station_configuration.farm.default_queue = "queue-named-like-id"
         
@@ -119,7 +127,7 @@ class TestDeadlineCloudSettings(unittest.TestCase):
         self.settings.on_settings_modified("DefaultQueue")
         
         # Verify that config.set_setting was called with the correct queue ID (should be queue-abcde)
-        mock_config.set_setting.assert_any_call("defaults.queue_id", "queue-abcde")
+        mock_config.set_setting.assert_called_with("defaults.queue_id", "queue-abcde")
 
     @patch('src.unreal_plugin.Content.Python.settings.config')
     @patch('src.unreal_plugin.Content.Python.settings.logger')
