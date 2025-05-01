@@ -190,30 +190,33 @@ public:
 
                     if (Key == TEXT("farm_id") && !Value.IsEmpty())
                     {
+                        // If the value looks like an ID (starts with "farm-"), try to find the farm by ID
+                        if (!Value.StartsWith(TEXT("farm-")))
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Farm id not properly formatted '%s'"), *Value);
+                            continue;
+                        }
+
                         // Find farm by ID and use its name
                         FString FarmName = Value;
-                        
-                        // If the value looks like an ID (starts with "farm-"), try to find the farm by ID
-                        if (Value.StartsWith(TEXT("farm-")))
+
+                        // In a real implementation, we would look up the farm name from the ID
+                        // For now, we'll just use a placeholder
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Converting farm ID '%s' to name"), *Value);
+
+                        // Look up the farm name from the ID using the Settings object
+                        FString FoundName = Settings->GetFarmNameById(Value);
+                        if (!FoundName.IsEmpty())
                         {
-                            // In a real implementation, we would look up the farm name from the ID
-                            // For now, we'll just use a placeholder
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Converting farm ID '%s' to name"), *Value);
-                            
-                            // Look up the farm name from the ID using the Settings object
-                            FString FoundName = Settings->GetFarmNameById(Value);
-                            if (!FoundName.IsEmpty())
-                            {
-                                FarmName = FoundName;
-                                UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
-                            }
-                            else
-                            {
-                                UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find farm with ID: '%s'"), *Value);
-                            }
+                            FarmName = FoundName;
                             UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
                         }
-                        
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find farm with ID: '%s'"), *Value);
+                        }
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
+
                         // Check if the farm value is actually changing
                         if (Settings->WorkStationConfiguration.Profile.DefaultFarm != FarmName)
                         {
@@ -228,30 +231,34 @@ public:
                     }
                     else if (Key == TEXT("queue_id") && !Value.IsEmpty())
                     {
+                        // If the value looks like an ID (starts with "queue-"), try to find the queue by ID
+                        if (!Value.StartsWith(TEXT("queue-")))
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Queue id not properly formatted '%s'"), *Value);
+                            continue;
+                        }
+
                         // Find queue by ID and use its name
                         FString QueueName = Value;
-                        
-                        // If the value looks like an ID (starts with "queue-"), try to find the queue by ID
-                        if (Value.StartsWith(TEXT("queue-")))
+
+                        // In a real implementation, we would look up the queue name from the ID
+                        // For now, we'll just use a placeholder
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Converting queue ID '%s' to name"), *Value);
+
+                        // Look up the queue name from the ID using the Settings object
+                        FString FoundName = Settings->GetQueueNameById(Value);
+                        if (!FoundName.IsEmpty())
                         {
-                            // In a real implementation, we would look up the queue name from the ID
-                            // For now, we'll just use a placeholder
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Converting queue ID '%s' to name"), *Value);
-                            
-                            // Look up the queue name from the ID using the Settings object
-                            FString FoundName = Settings->GetQueueNameById(Value);
-                            if (!FoundName.IsEmpty())
-                            {
-                                QueueName = FoundName;
-                                UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
-                            }
-                            else
-                            {
-                                UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find queue with ID: '%s'"), *Value);
-                            }
+                            QueueName = FoundName;
                             UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
                         }
-                        
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find queue with ID: '%s'"), *Value);
+                        }
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
+
+
                         // Check if the queue value is actually changing
                         if (Settings->WorkStationConfiguration.Farm.DefaultQueue != QueueName)
                         {
