@@ -155,7 +155,7 @@ def cancel_pending_jobs(deadline_client: BaseClient, farm_id: str, queue_id: str
 
         for job in jobs:
             job_id = job.get("jobId")
-            status = job.get("status")
+            status = job.get("taskRunStatus")
 
             if status in active_states:
                 logger.info(f"Found active job {job_id} with status {status} - will cancel")
@@ -186,7 +186,6 @@ def cancel_job(deadline_client: BaseClient, farm_id: str, queue_id: str, job_id:
         farm_id: The farm ID containing the job
         queue_id: The queue ID containing the job
         job_id: The job ID to cancel
-
     Returns:
         bool: True if cancellation was successful, False otherwise
     """
@@ -608,7 +607,7 @@ def run_unreal_test(request, reusable_queue_fleet_association) -> Callable:
 
         test_params_str = f"-testparams=farm_id={reusable_farm_id};queue_id={reusable_queue_id}"
 
-        engine_root = find_engine_root()
+        engine_root = find_engine_root(request.config.getoption("--ueversion"))
 
         unrealeditor_cmd_path = os.path.join(engine_root, "Engine", "Binaries", "Win64")
         test_args = [
@@ -753,7 +752,7 @@ def create_readonly_test_project(request) -> Generator[Tuple[str, str], None, No
     temp_dir = tempfile.TemporaryDirectory(dir=project_base).name
     logger.info(f"Created project folder: {temp_dir}")
 
-    engine_root = find_engine_root()
+    engine_root = find_engine_root(request.config.getoption("--ueversion"))
     # Source path for the template
     source_path = os.path.join(engine_root, "Templates\TP_DMXBP")
     if not os.path.exists(source_path):
@@ -979,7 +978,6 @@ def reusable_farm_id(deadline_client: BaseClient, request) -> Generator[str, Non
                 break
     except Exception as e:
         logger.warning(f"Error checking for existing test farms: {str(e)}")
-
     # If no test farm found, check defaults.farm_id
     if not farm_id:
         config_farm_id = config.get_setting("defaults.farm_id")

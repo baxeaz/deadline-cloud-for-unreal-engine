@@ -1,0 +1,51 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+import logging
+from conftest import extract_job_info_from_test_output, wait_for_job_state
+
+logger = logging.getLogger(__name__)
+
+
+def test_create_job_with_worker_agent(
+    deadline_client,
+    build_plugin,
+    create_readonly_test_project,
+    run_unreal_test,
+    deadline_worker_agent,
+):
+    """
+    Run CreateJob automation test from within Unreal with a local worker agent running.
+    This test verifies that the job is processed by the local worker agent.
+    """
+
+    # The deadline_worker_agent fixture will start the worker agent before this test runs
+    # and will stop it after the test completes
+
+    _, uproject_file = create_readonly_test_project
+
+    logger.info(f"Creating job from project {uproject_file}")
+    success, output_lines = run_unreal_test("Deadline.Integration.CreateJob", uproject_file)
+    assert success, "Create job test failed"
+
+    # Extract job ID and farm ID from the output
+    job_id, farm_id, queue_id = extract_job_info_from_test_output(output_lines)
+
+    if job_id and farm_id and queue_id:
+
+        # Wait for job completion
+        success, status, message = wait_for_job_state(
+            deadline_client=deadline_client,
+            farm_id=farm_id,
+            job_id=job_id,
+            queue_id=queue_id,
+            expected_states=["SUCCEEDED"],
+            max_wait_time=600,
+            wait_interval=10,
+        )
+
+        assert success
+
+        logger.info(f"Job {job_id} SUCCEEDED")
+    else:
+        logger.warning("Could not extract job ID or farm ID from test output")
+        assert False, "Could not extract job information from test output"

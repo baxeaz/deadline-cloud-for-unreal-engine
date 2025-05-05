@@ -8,13 +8,42 @@ from typing import Optional
 
 if "PYTHONPATH" in os.environ:
     for p in os.environ["PYTHONPATH"].split(os.pathsep):
+        print(f"Adding PYTHONPATH {p} to sys.path")
         if p not in sys.path:
             sys.path.insert(0, p.replace("\\", "/"))
 
+
+def add_deadline_parent_to_path():
+    # When running e2e tests in development mode we can use the source version of unreal_client.py
+    # Ensure that we can load the relative modules
+
+    # Get the directory of the current module
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Go up 3 folders
+    parent_dir = current_dir
+    for _ in range(3):
+        parent_dir = os.path.dirname(parent_dir)
+
+    # Check if the parent directory contains a 'deadline' subfolder
+    if os.path.isdir(os.path.join(parent_dir, "deadline")):
+        # Add the parent directory to sys.path if not already there
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+            return True
+
+    return False
+
+
+added = add_deadline_parent_to_path()
+if added:
+    print("Added deadline parent directory to sys.path")
+
 for p in sys.path:
-    print(p)
+    print(f"sys.path has element {p}")
 
 from deadline.unreal_logger import get_logger  # noqa: E402
+
 from openjd.adaptor_runtime_client.win_client_interface import WinClientInterface  # noqa: E402
 from deadline.unreal_adaptor.UnrealClient.step_handlers.base_step_handler import (  # noqa: E402
     BaseStepHandler,
