@@ -14,7 +14,80 @@
 #include "MovieRenderPipeline/MoviePipelineDeadlineCloudExecutorJob.h"
 #include "Modules/ModuleManager.h"
 
+// UI Automation includes
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "AutomationDriverTypeDefs.h"
+#include "IAutomationDriver.h"
+#include "IAutomationDriverModule.h"
+#include "IDriverElement.h"
+#include "IDriverSequence.h"
+#include "LocateBy.h"
+#include "PropertyEditorModule.h"
+#include "IDetailsView.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogCreateJobTest, Log, All);
+
+// Helper functions for UI interaction
+static FString ConvertLocalPathToFull(const FString& Path)
+{
+    FString PluginContentDir = IPluginManager::Get().FindPlugin(TEXT("UnrealDeadlineCloudService"))->GetBaseDir();
+    PluginContentDir = FPaths::ConvertRelativePathToFull(PluginContentDir);
+    FString FullPath = FPaths::Combine(PluginContentDir, Path);
+    FPaths::NormalizeDirectoryName(FullPath);
+    return FullPath;
+}
+
+static void ExpandAllProperties(const FString DetailsPath, FAutomationDriverPtr Driver)
+{
+    FString MainCategoryExpanderArrowPath = DetailsPath + "//<SDetailCategoryTableRow>//<SDetailExpanderArrow>";
+    FDriverElementCollectionRef ParametersCategory = Driver->FindElements(By::Path(MainCategoryExpanderArrowPath));
+    if (ParametersCategory->GetElements().Num() > 0)
+    {
+        ParametersCategory->GetElements()[0]->Click(EMouseButtons::Type::Right);
+        Driver->Wait(FTimespan::FromSeconds(1));
+
+        FString PopupElementsPath = "<SWindow>//<SPopup>//<SMultiBoxWidget>//<SBorder>//<SVerticalBox>//<SScrollBox>//<SHorizontalBox>//<SOverlay>//<SScrollPanel>//<SVerticalBox>//<SHorizontalBox>//<SMenuEntryButton>";
+
+        FDriverElementCollectionRef PopupElements = Driver->FindElements(By::Path(PopupElementsPath));
+        if (!PopupElements->GetElements().IsEmpty())
+        {
+            PopupElements->GetElements()[2]->Focus();
+            PopupElements->GetElements()[2]->Click(EMouseButtons::Type::Left);
+        }
+    }
+}
+
+static void ScrollToElement(FAutomationDriverPtr Driver, FDriverElementRef List, FDriverElementRef ScrollBar, FDriverElementRef TargetElement, uint32 AttemptsLimit)
+{
+    if (TargetElement->Exists() && TargetElement->IsVisible())
+    {
+        return;
+    }
+
+    if (List->Exists() && ScrollBar->Exists())
+    {
+        uint32 CurrentAttempts = 0;
+        while ((!TargetElement->Exists() || !TargetElement->IsVisible()) && (!ScrollBar->IsScrolledToEnd() && CurrentAttempts < AttemptsLimit))
+        {
+            List->ScrollBy(-1);
+            CurrentAttempts++;
+        }
+    }
+}
+
+static void InputText(FDriverElementRef Widget, const FString& Text, bool bRemoveTextBeforeInput)
+{
+    if (bRemoveTextBeforeInput)
+    {
+        Widget->TypeChord(EKeys::LeftControl, EKeys::A);
+        Widget->Type(EKeys::Delete);
+    }
+    if (!Text.IsEmpty())
+    {
+        Widget->Type(Text);
+    }
+    Widget->Type(EKeys::Enter);
+}
 
 class WaitForJobCreationLogCommand : public IAutomationLatentCommand, public FOutputDevice
 {
@@ -141,7 +214,6 @@ private:
     UMoviePipelineQueue* m_originalQueue;
 };
 
-// Settings helper class
 class FSettingsHelper
 {
 public:
@@ -221,187 +293,298 @@ public:
         OriginalQueueId = Settings->WorkStationConfiguration.Farm.DefaultQueue;
 
         UE_LOG(LogCreateJobTest, Display, TEXT("Updating settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
-        // Parse command line parameters
+        
+        // Initialize the Automation Driver
+        if (IAutomationDriverModule::Get().IsEnabled())
+        {
+            IAutomationDriverModule::Get().Disable();
+        }
+        IAutomationDriverModule::Get().Enable();
+        FAutomationDriverPtr Driver = IAutomationDriverModule::Get().CreateDriver();
+        
+        // Parse command line parameters to get farm_id and queue_id
         FString ParamsString;
+        FString FarmId, QueueId;
+        
         if (FParse::Value(FCommandLine::Get(), TEXT("testparams="), ParamsString))
         {
             UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString: '%s'"), *ParamsString);
-
-            // Debug the full command line
-            UE_LOG(LogCreateJobTest, Display, TEXT("Full command line: '%s'"), FCommandLine::Get());
-
+            
             // Split using semicolon delimiter
             TArray<FString> KeyValuePairs;
             ParamsString.ParseIntoArray(KeyValuePairs, TEXT(";"), true);
-
-            UE_LOG(LogCreateJobTest, Display, TEXT("Split into %d key-value pairs"), KeyValuePairs.Num());
-
-            bool farmChanged = false;
-            bool queueChanged = false;
-
+            
             for (int32 i = 0; i < KeyValuePairs.Num(); ++i)
             {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Pair %d: '%s'"), i, *KeyValuePairs[i]);
-
                 FString Key, Value;
                 if (KeyValuePairs[i].Split(TEXT("="), &Key, &Value))
                 {
-                    UE_LOG(LogCreateJobTest, Display, TEXT("Split into key='%s', value='%s'"), *Key, *Value);
-
                     if (Key == TEXT("farm_id") && !Value.IsEmpty())
                     {
-                        // If the value looks like an ID (starts with "farm-"), try to find the farm by ID
-                        if (!Value.StartsWith(TEXT("farm-")))
-                        {
-                            UE_LOG(LogCreateJobTest, Warning, TEXT("Farm id not properly formatted '%s'"), *Value);
-                            continue;
-                        }
-
-                        // Find farm by ID and use its name
-                        FString FarmName = Value;
-
-                        // In a real implementation, we would look up the farm name from the ID
-                        // For now, we'll just use a placeholder
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Converting farm ID '%s' to name"), *Value);
-
-                        // Look up the farm name from the ID using the Settings object
-                        FString FoundName = Settings->FindFarmById(Value, true).Name;
-                        if (!FoundName.IsEmpty())
-                        {
-                            FarmName = FoundName;
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
-                        }
-                        else
-                        {
-                            UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find farm with ID: '%s'"), *Value);
-                        }
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
-
-                        // Check if the farm value is actually changing
-                        if (Settings->WorkStationConfiguration.Profile.DefaultFarm != FarmName)
-                        {
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *FarmName);
-                            Settings->WorkStationConfiguration.Profile.DefaultFarm = FarmName;
-                            farmChanged = true;
-                        }
-                        else
-                        {
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Farm value unchanged (already '%s'), skipping update"), *FarmName);
-                        }
+                        FarmId = Value;
                     }
                     else if (Key == TEXT("queue_id") && !Value.IsEmpty())
                     {
-                        // If the value looks like an ID (starts with "queue-"), try to find the queue by ID
-                        if (!Value.StartsWith(TEXT("queue-")))
-                        {
-                            UE_LOG(LogCreateJobTest, Warning, TEXT("Queue id not properly formatted '%s'"), *Value);
-                            continue;
-                        }
-
-                        // Find queue by ID and use its name
-                        FString QueueName = Value;
-
-                        // In a real implementation, we would look up the queue name from the ID
-                        // For now, we'll just use a placeholder
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Converting queue ID '%s' to name"), *Value);
-
-                        // Look up the queue name from the ID using the Settings object
-                        FString FoundName = Settings->FindQueueById(Value, true).Name;
-                        if (!FoundName.IsEmpty())
-                        {
-                            QueueName = FoundName;
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
-                        }
-                        else
-                        {
-                            UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find queue with ID: '%s'"), *Value);
-                        }
-                        UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
-
-
-                        // Check if the queue value is actually changing
-                        if (Settings->WorkStationConfiguration.Farm.DefaultQueue != QueueName)
-                        {
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *QueueName);
-                            Settings->WorkStationConfiguration.Farm.DefaultQueue = QueueName;
-                            queueChanged = true;
-                        }
-                        else
-                        {
-                            UE_LOG(LogCreateJobTest, Display, TEXT("Queue value unchanged (already '%s'), skipping update"), *QueueName);
-                        }
+                        QueueId = Value;
                     }
                 }
-                else
-                {
-                    UE_LOG(LogCreateJobTest, Warning, TEXT("Failed to split pair '%s' on '='"), *KeyValuePairs[i]);
-                }
-            }
-
-            // Save the settings
-            Settings->SaveConfig();
-
-            // Trigger the Python implementation's on_settings_modified method with the exact property name it expects
-            if (farmChanged)
-            {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultFarm"));
-				FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Profile.DefaultFarm"));
-                FPropertyChangedEvent PropertyEvent(Property);
-                Settings->PostEditChangeProperty(PropertyEvent);
-            }
-
-            if (queueChanged)
-            {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultQueue"));
-				FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Farm.DefaultQueue"));
-                FPropertyChangedEvent PropertyEvent(Property);
-                Settings->PostEditChangeProperty(PropertyEvent);
             }
         }
+        
+        // Open the settings editor
+        Settings->OpenSettingsEditor();
+        
+        // Wait for the settings editor to open
+        Driver->Wait(FTimespan::FromSeconds(2));
+        
+        // Define paths to UI elements
+        const FString DetailsPath = "<SStandaloneAssetEditorToolkitHost>//<SDetailsView>";
+        const FString ListPath = DetailsPath + "//<SListPanel>";
+        const FString ScrollBarPath = DetailsPath + "//<SScrollBar>";
+        
+        // Find the details view
+        FDriverElementPtr Details = Driver->FindElement(By::Path(DetailsPath));
+        if (!Details->Exists())
+        {
+            UE_LOG(LogCreateJobTest, Error, TEXT("Failed to find settings details view"));
+            return;
+        }
+        
+        // Find list and scrollbar
+        FDriverElementPtr List = Driver->FindElement(By::Path(ListPath));
+        FDriverElementPtr ScrollBar = Driver->FindElement(By::Path(ScrollBarPath));
+        
+        // Expand all properties
+        ExpandAllProperties(DetailsPath, Driver);
+        
+        // Define paths to farm and queue dropdown elements
+        FString FarmDropdownPath = DetailsPath + "//#WorkStationConfiguration.Profile.DefaultFarm//<SComboBox>";
+        FString QueueDropdownPath = DetailsPath + "//#WorkStationConfiguration.Farm.DefaultQueue//<SComboBox>";
+        
+        // Find the farm dropdown
+        FDriverElementRef FarmDropdown = Driver->FindElement(By::Path(FarmDropdownPath));
+        if (FarmDropdown->Exists() && !FarmId.IsEmpty())
+        {
+            // Scroll to the farm dropdown if needed
+            ScrollToElement(Driver, List.ToSharedRef(), ScrollBar.ToSharedRef(), FarmDropdown, 50);
+            
+            // Click to open the dropdown
+            FarmDropdown->Click(EMouseButtons::Left);
+            Driver->Wait(FTimespan::FromSeconds(1));
+            
+            // Find the farm by ID in the dropdown
+            FString FarmName = Settings->FindFarmById(FarmId, true).Name;
+            if (!FarmName.IsEmpty())
+            {
+                // Find and click the farm item in the dropdown
+                FString FarmItemPath = "<SWindow>//<SVerticalBox>//<SListView>//<STableRow>";
+                FDriverElementCollectionRef FarmItems = Driver->FindElements(By::Path(FarmItemPath));
+                
+                for (int32 i = 0; i < FarmItems->GetElements().Num(); i++)
+                {
+                    FDriverElementRef Item = FarmItems->GetElements()[i];
+                    FString ItemText = Item->GetText();
+                    
+                    if (ItemText.Contains(FarmName))
+                    {
+                        Item->Click(EMouseButtons::Left);
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Selected farm: %s"), *FarmName);
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find farm with ID: '%s'"), *FarmId);
+                // Close the dropdown by clicking elsewhere
+                Details->Click(EMouseButtons::Left);
+            }
+        }
+        
+        // Wait for farm selection to take effect
+        Driver->Wait(FTimespan::FromSeconds(1));
+        
+        // Find the queue dropdown
+        FDriverElementRef QueueDropdown = Driver->FindElement(By::Path(QueueDropdownPath));
+        if (QueueDropdown->Exists() && !QueueId.IsEmpty())
+        {
+            // Scroll to the queue dropdown if needed
+            ScrollToElement(Driver, List.ToSharedRef(), ScrollBar.ToSharedRef(), QueueDropdown, 50);
+            
+            // Click to open the dropdown
+            QueueDropdown->Click(EMouseButtons::Left);
+            Driver->Wait(FTimespan::FromSeconds(1));
+            
+            // Find the queue by ID in the dropdown
+            FString QueueName = Settings->FindQueueById(QueueId, true).Name;
+            if (!QueueName.IsEmpty())
+            {
+                // Find and click the queue item in the dropdown
+                FString QueueItemPath = "<SWindow>//<SVerticalBox>//<SListView>//<STableRow>";
+                FDriverElementCollectionRef QueueItems = Driver->FindElements(By::Path(QueueItemPath));
+                
+                for (int32 i = 0; i < QueueItems->GetElements().Num(); i++)
+                {
+                    FDriverElementRef Item = QueueItems->GetElements()[i];
+                    FString ItemText = Item->GetText();
+                    
+                    if (ItemText.Contains(QueueName))
+                    {
+                        Item->Click(EMouseButtons::Left);
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Selected queue: %s"), *QueueName);
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find queue with ID: '%s'"), *QueueId);
+                // Close the dropdown by clicking elsewhere
+                Details->Click(EMouseButtons::Left);
+            }
+        }
+        
+        // Close the settings editor
+        FString CloseButtonPath = "<SStandaloneAssetEditorToolkitHost>//<SBorder>//<SHorizontalBox>//<SButton>";
+        FDriverElementRef CloseButton = Driver->FindElement(By::Path(CloseButtonPath));
+        if (CloseButton->Exists())
+        {
+            CloseButton->Click(EMouseButtons::Left);
+        }
+        
+        // Clean up the driver
+        Driver.Reset();
+        IAutomationDriverModule::Get().Disable();
     }
 
     static void RestoreOriginalSettings()
     {
-        // Restore original settings
+        // Restore original settings using UI interaction
         UDeadlineCloudDeveloperSettings* Settings = UDeadlineCloudDeveloperSettings::GetMutable();
-        if (Settings)
+        if (!Settings)
         {
-            UE_LOG(LogCreateJobTest, Display, TEXT("Restoring settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
-
-            // Check if the farm value needs to be restored
-            if (Settings->WorkStationConfiguration.Profile.DefaultFarm != OriginalFarmId)
-            {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Restoring farm from '%s' to '%s'"),
-                    *Settings->WorkStationConfiguration.Profile.DefaultFarm, *OriginalFarmId);
-                Settings->WorkStationConfiguration.Profile.DefaultFarm = OriginalFarmId;
-                Settings->SaveConfig();
-
-                FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Profile.DefaultFarm"));
-                FPropertyChangedEvent PropertyEvent(Property);
-				Settings->PostEditChangeProperty(PropertyEvent);
-            }
-            else
-            {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Farm already at original value '%s', no restore needed"), *OriginalFarmId);
-            }
-
-            // Check if the queue value needs to be restored
-            if (Settings->WorkStationConfiguration.Farm.DefaultQueue != OriginalQueueId)
-            {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Restoring queue from '%s' to '%s'"),
-                    *Settings->WorkStationConfiguration.Farm.DefaultQueue, *OriginalQueueId);
-                Settings->WorkStationConfiguration.Farm.DefaultQueue = OriginalQueueId;
-                Settings->SaveConfig();
-
-				FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Farm.DefaultQueue"));
-                FPropertyChangedEvent PropertyEvent(Property);
-				Settings->PostEditChangeProperty(PropertyEvent);
-            }
-            else
-            {
-                UE_LOG(LogCreateJobTest, Display, TEXT("Queue already at original value '%s', no restore needed"), *OriginalQueueId);
-            }
+            UE_LOG(LogCreateJobTest, Error, TEXT("Failed to get settings for restoration"));
+            return;
         }
+        
+        UE_LOG(LogCreateJobTest, Display, TEXT("Restoring settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
+        
+        // Initialize the Automation Driver
+        if (IAutomationDriverModule::Get().IsEnabled())
+        {
+            IAutomationDriverModule::Get().Disable();
+        }
+        IAutomationDriverModule::Get().Enable();
+        FAutomationDriverPtr Driver = IAutomationDriverModule::Get().CreateDriver();
+        
+        // Open the settings editor
+        Settings->OpenSettingsEditor();
+        
+        // Wait for the settings editor to open
+        Driver->Wait(FTimespan::FromSeconds(2));
+        
+        // Define paths to UI elements
+        const FString DetailsPath = "<SStandaloneAssetEditorToolkitHost>//<SDetailsView>";
+        const FString ListPath = DetailsPath + "//<SListPanel>";
+        const FString ScrollBarPath = DetailsPath + "//<SScrollBar>";
+        
+        // Find the details view
+        FDriverElementPtr Details = Driver->FindElement(By::Path(DetailsPath));
+        if (!Details->Exists())
+        {
+            UE_LOG(LogCreateJobTest, Error, TEXT("Failed to find settings details view for restoration"));
+            return;
+        }
+        
+        // Find list and scrollbar
+        FDriverElementPtr List = Driver->FindElement(By::Path(ListPath));
+        FDriverElementPtr ScrollBar = Driver->FindElement(By::Path(ScrollBarPath));
+        
+        // Expand all properties
+        ExpandAllProperties(DetailsPath, Driver);
+        
+        // Define paths to farm and queue dropdown elements
+        FString FarmDropdownPath = DetailsPath + "//#WorkStationConfiguration.Profile.DefaultFarm//<SComboBox>";
+        FString QueueDropdownPath = DetailsPath + "//#WorkStationConfiguration.Farm.DefaultQueue//<SComboBox>";
+        
+        // Find the farm dropdown
+        FDriverElementRef FarmDropdown = Driver->FindElement(By::Path(FarmDropdownPath));
+        if (FarmDropdown->Exists() && !OriginalFarmId.IsEmpty())
+        {
+            // Scroll to the farm dropdown if needed
+            ScrollToElement(Driver, List.ToSharedRef(), ScrollBar.ToSharedRef(), FarmDropdown, 50);
+            
+            // Click to open the dropdown
+            FarmDropdown->Click(EMouseButtons::Left);
+            Driver->Wait(FTimespan::FromSeconds(1));
+            
+            // Find the original farm in the dropdown
+            FString FarmItemPath = "<SWindow>//<SVerticalBox>//<SListView>//<STableRow>";
+            FDriverElementCollectionRef FarmItems = Driver->FindElements(By::Path(FarmItemPath));
+            
+            for (int32 i = 0; i < FarmItems->GetElements().Num(); i++)
+            {
+                FDriverElementRef Item = FarmItems->GetElements()[i];
+                FString ItemText = Item->GetText();
+                
+                if (ItemText.Contains(OriginalFarmId))
+                {
+                    Item->Click(EMouseButtons::Left);
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Restored farm to: %s"), *OriginalFarmId);
+                    break;
+                }
+            }
+            
+            // If we couldn't find the exact farm, close the dropdown
+            Details->Click(EMouseButtons::Left);
+        }
+        
+        // Wait for farm selection to take effect
+        Driver->Wait(FTimespan::FromSeconds(1));
+        
+        // Find the queue dropdown
+        FDriverElementRef QueueDropdown = Driver->FindElement(By::Path(QueueDropdownPath));
+        if (QueueDropdown->Exists() && !OriginalQueueId.IsEmpty())
+        {
+            // Scroll to the queue dropdown if needed
+            ScrollToElement(Driver, List.ToSharedRef(), ScrollBar.ToSharedRef(), QueueDropdown, 50);
+            
+            // Click to open the dropdown
+            QueueDropdown->Click(EMouseButtons::Left);
+            Driver->Wait(FTimespan::FromSeconds(1));
+            
+            // Find the original queue in the dropdown
+            FString QueueItemPath = "<SWindow>//<SVerticalBox>//<SListView>//<STableRow>";
+            FDriverElementCollectionRef QueueItems = Driver->FindElements(By::Path(QueueItemPath));
+            
+            for (int32 i = 0; i < QueueItems->GetElements().Num(); i++)
+            {
+                FDriverElementRef Item = QueueItems->GetElements()[i];
+                FString ItemText = Item->GetText();
+                
+                if (ItemText.Contains(OriginalQueueId))
+                {
+                    Item->Click(EMouseButtons::Left);
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Restored queue to: %s"), *OriginalQueueId);
+                    break;
+                }
+            }
+            
+            // If we couldn't find the exact queue, close the dropdown
+            Details->Click(EMouseButtons::Left);
+        }
+        
+        // Close the settings editor
+        FString CloseButtonPath = "<SStandaloneAssetEditorToolkitHost>//<SBorder>//<SHorizontalBox>//<SButton>";
+        FDriverElementRef CloseButton = Driver->FindElement(By::Path(CloseButtonPath));
+        if (CloseButton->Exists())
+        {
+            CloseButton->Click(EMouseButtons::Left);
+        }
+        
+        // Clean up the driver
+        Driver.Reset();
+        IAutomationDriverModule::Get().Disable();
     }
 
 private:
