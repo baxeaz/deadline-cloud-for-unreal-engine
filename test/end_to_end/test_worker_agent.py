@@ -24,7 +24,7 @@ def test_create_job_with_worker_agent(
     _, uproject_file = create_readonly_test_project
 
     logger.info(f"Creating job from project {uproject_file}")
-    success, output_lines = run_unreal_test("Deadline.Integration.CreateJob", uproject_file)
+    success, output_lines = run_unreal_test("DeadlineCloud.Integration.CreateJob", uproject_file)
     assert success, "Create job test failed"
 
     # Extract job ID and farm ID from the output
