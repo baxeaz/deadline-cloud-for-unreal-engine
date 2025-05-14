@@ -588,7 +588,7 @@ def run_unreal_test(request, reusable_queue_fleet_association) -> Callable:
         rather than relying on the process return code.
 
         Args:
-            test_path: Automation test path (e.g. "Deadline.Integration.CreateJob")
+            test_path: Automation test path (e.g. "DeadlineCloud.Integration.CreateJob")
             uproject_file: Path to the uproject file
             deadlineargs: Optional arguments to pass to Deadline, defaults to basic settings if None
 
