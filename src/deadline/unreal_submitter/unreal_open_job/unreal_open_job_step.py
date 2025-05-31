@@ -289,7 +289,7 @@ class UnrealOpenJobStep(UnrealOpenJobEntity):
             ]
             param_definition_cls = param_descriptor.task_parameter_openjd_class
 
-            step_parameter_definition_list.append(param_definition_cls(**yaml_p))
+            step_parameter_definition_list.append(create_openjd_model(param_definition_cls, yaml_p))
 
         return step_parameter_definition_list
 
@@ -308,30 +308,30 @@ class UnrealOpenJobStep(UnrealOpenJobEntity):
         """
         step_template_object = self.get_template_object()
         step_parameters = self._build_step_parameter_definition_list()
-        
+
         template_dict = {
             "name": self.name,
-            "script": StepScript(**step_template_object["script"]),
+            "script": create_openjd_model(StepScript, step_template_object["script"]),
         }
-        
+
         if step_parameters:
             template_dict["parameterSpace"] = StepParameterSpaceDefinition(
                 taskParameterDefinitions=step_parameters,
                 combination=step_template_object["parameterSpace"].get("combination"),
             )
-            
+
         if self._environments:
             template_dict["stepEnvironments"] = [env.build_template() for env in self._environments]
-            
+
         if self._step_dependencies:
             template_dict["dependencies"] = [
                 StepDependency(dependsOn=step_dependency)
                 for step_dependency in self._step_dependencies
             ]
-            
+
         if self.host_requirements:
             template_dict["hostRequirements"] = self.host_requirements
-            
+
         return create_openjd_model(self.template_class, template_dict)
 
     def get_asset_references(self):

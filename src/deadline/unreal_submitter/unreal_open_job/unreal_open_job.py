@@ -375,10 +375,10 @@ class UnrealOpenJob(UnrealOpenJobEntity):
             ],
             "steps": [s.build_template() for s in self._steps],
         }
-        
+
         if self._environments:
             template_dict["jobEnvironments"] = [e.build_template() for e in self._environments]
-            
+
         job_template = create_openjd_model(self.template_class, template_dict)
         return job_template
 

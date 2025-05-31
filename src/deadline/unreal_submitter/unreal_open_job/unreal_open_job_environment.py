@@ -105,18 +105,18 @@ class UnrealOpenJobEnvironment(UnrealOpenJobEntity):
         Build Environment OpenJD model with updated name and variables dictionary
         """
         environment_template_object = self.get_template_object()
-        
+
         template_dict = {
             "name": self.name,
         }
-        
+
         script = environment_template_object.get("script")
         if script:
             template_dict["script"] = EnvironmentScript(**script)
-            
+
         if self._variables:
             template_dict["variables"] = self._variables
-            
+
         return create_openjd_model(self.template_class, template_dict)
 
 
