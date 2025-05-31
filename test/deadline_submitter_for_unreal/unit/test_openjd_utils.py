@@ -40,7 +40,7 @@ class TestOpenJDUtils:
             logger.addHandler(handler)
         yield
         # Clean up after test
-        for handler in logger.handlers[:]:
+        for handler in logger.handlers[:]:  # type: ignore
             logger.removeHandler(handler)
 
     def test_format_string_classes_list(self):
@@ -83,7 +83,7 @@ class TestOpenJDUtils:
             "name": "test-step",
             "script": {"actions": {"onRun": {"command": "echo", "args": ["hello"]}}},
         }
-        data["steps"] = [step_data]
+        data["steps"] = [step_data]  # type: ignore
 
         # Create the model to verify it works
         job = create_openjd_model(JobTemplate, data)

@@ -204,7 +204,8 @@ class UnrealOpenJob(UnrealOpenJobEntity):
             data_asset.job_preset_struct.host_requirements
         )
         for step in steps:
-            step.host_requirements = host_requirements
+            if host_requirements is not None:
+                step.host_requirements = host_requirements
 
         shared_settings = data_asset.job_preset_struct.job_shared_settings
 
@@ -549,14 +550,19 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         self._update_steps_settings_from_mrq_job(self._mrq_job)
         self._update_environments_settings_from_mrq_job(self._mrq_job)
 
-        if self._mrq_job.parameter_definition_overrides.parameters:
+        if (self._mrq_job is not None and 
+            self._mrq_job.parameter_definition_overrides is not None and 
+            self._mrq_job.parameter_definition_overrides.parameters):
             self._extra_parameters = [
                 UnrealOpenJobParameterDefinition.from_unreal_param_definition(p)
                 for p in self._mrq_job.parameter_definition_overrides.parameters
             ]
 
-        self.job_shared_settings = JobSharedSettings.from_u_deadline_cloud_job_shared_settings(
-            self._mrq_job.preset_overrides.job_shared_settings
+        if (self._mrq_job is not None and 
+            self._mrq_job.preset_overrides is not None and 
+            self._mrq_job.preset_overrides.job_shared_settings is not None):
+            self.job_shared_settings = JobSharedSettings.from_u_deadline_cloud_job_shared_settings(
+                self._mrq_job.preset_overrides.job_shared_settings
         )
 
         # Job name set order:
@@ -564,9 +570,12 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         #   1. Get from data asset job preset struct
         #   2. Get from YAML template
         #   4. Get from mrq job name (shot name)
-        preset_override_name = self._mrq_job.preset_overrides.job_shared_settings.name
-        if preset_override_name not in ["", "Untitled"]:
-            self._name = preset_override_name
+        if (self._mrq_job is not None and 
+            self._mrq_job.preset_overrides is not None and 
+            self._mrq_job.preset_overrides.job_shared_settings is not None):
+            preset_override_name = self._mrq_job.preset_overrides.job_shared_settings.name
+            if preset_override_name not in ["", "Untitled"]:
+                self._name = preset_override_name
 
         if self._name is None:
             self._name = self._mrq_job.job_name
@@ -598,7 +607,8 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         for source_step in data_asset.steps:
             job_step_cls = cls.job_step_map.get(type(source_step), UnrealOpenJobStep)
             job_step = job_step_cls.from_data_asset(source_step)
-            job_step.host_requirements = host_requirements
+            if host_requirements is not None:
+                job_step.host_requirements = host_requirements
             steps.append(job_step)
 
         environments = []
@@ -695,7 +705,8 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         )
         for step in self._steps:
             # update host requirements
-            step.host_requirements = host_requirements
+            if host_requirements is not None:
+                step.host_requirements = host_requirements
 
             # set mrq job to render step
             if isinstance(step, RenderUnrealOpenJobStep):
