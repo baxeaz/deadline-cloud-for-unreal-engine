@@ -8,12 +8,16 @@ from typing import Optional, Any
 from dataclasses import dataclass, field, asdict
 
 from openjd.model.v2023_09 import (
+    ArgString,
+    CommandString,
+    DataString,
     StepScript,
     StepTemplate,
     TaskParameterType,
     HostRequirementsTemplate,
     TaskParameterList,
     StepParameterSpaceDefinition,
+    TaskParameterStringValue,
 )
 
 from openjd.model.v2023_09._model import StepDependency
@@ -280,7 +284,7 @@ class UnrealOpenJobStep(UnrealOpenJobEntity):
                 (p for p in self._extra_parameters if p.name == yaml_p["name"]), None
             )
             if override_param:
-                yaml_p["range"] = override_param.range
+                yaml_p["range"] = [TaskParameterStringValue(p) for p in override_param.range]
 
             param_descriptor: ParameterDefinitionDescriptor = PARAMETER_DEFINITION_MAPPING[
                 yaml_p["type"]
@@ -306,6 +310,17 @@ class UnrealOpenJobStep(UnrealOpenJobEntity):
         """
         step_template_object = self.get_template_object()
 
+        step_template_object["script"]["actions"]["onRun"]["command"] = CommandString(
+            step_template_object["script"]["actions"]["onRun"]["command"]
+        )
+
+        for this_file in step_template_object["script"]["embeddedFiles"]:
+            this_file["data"] = DataString(this_file["data"])
+
+        if step_template_object["script"]["actions"]["onRun"].get("args"):
+            step_template_object["script"]["actions"]["onRun"]["args"] = [
+                ArgString(arg) for arg in step_template_object["script"]["actions"]["onRun"]["args"]
+            ]
         step_parameters = self._build_step_parameter_definition_list()
 
         return self.template_class(

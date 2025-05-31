@@ -10,7 +10,7 @@ from typing import Any, Optional
 from collections import OrderedDict
 from dataclasses import dataclass, asdict
 
-from openjd.model.v2023_09 import JobTemplate
+from openjd.model.v2023_09 import JobTemplate, JobTemplateName
 
 from deadline.client.job_bundle.submission import AssetReferences
 from deadline.client.job_bundle import deadline_yaml_dump, create_job_history_bundle_dir
@@ -366,7 +366,7 @@ class UnrealOpenJob(UnrealOpenJobEntity):
 
         job_template = self.template_class(
             specificationVersion=settings.JOB_TEMPLATE_VERSION,
-            name=self.name,
+            name=JobTemplateName(self.name),
             parameterDefinitions=[
                 PARAMETER_DEFINITION_MAPPING[param["type"]].job_parameter_openjd_class(**param)
                 for param in self.get_template_object()["parameterDefinitions"]

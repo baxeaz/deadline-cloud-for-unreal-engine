@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from typing import Type, Union, Literal, Optional
 
 from openjd.model.v2023_09 import (
+    CommandString,
+    DataString,
     JobTemplate,
     StepTemplate,
     Environment,
@@ -17,6 +19,7 @@ from openjd.model.v2023_09 import (
     IntTaskParameterDefinition,
     FloatTaskParameterDefinition,
     StringTaskParameterDefinition,
+    TaskParameterStringValue,
     PathTaskParameterDefinition,
 )
 
@@ -145,6 +148,17 @@ class UnrealOpenJobEntity(UnrealOpenJobEntityBase):
         :rtype: Template
         """
         template_object = self.get_template_object()
+        template_object["script"]["actions"]["onRun"]["command"] = CommandString(
+            template_object["script"]["actions"]["onRun"]["command"]
+        )
+        for this_file in template_object["script"]["embeddedFiles"]:
+            this_file["data"] = DataString(this_file["data"])
+        for this_param in template_object["parameterSpace"]["taskParameterDefinitions"]:
+            if this_param.get("type") in ["STRING", "PATH"]:
+                this_param["range"] = [
+                    TaskParameterStringValue(this_task_param)
+                    for this_task_param in this_param["range"]
+                ]
         return self.template_class(**template_object)
 
     def _validate_parameters(self) -> bool:

@@ -10,7 +10,7 @@ These instructions are updated along with the corresponding code and scripts fai
 
 If you’re setting up on a brand new Windows EC2 Instance as your submitter, a g5.2xlarge instance with 200 GB of storage will likely be reasonable minimum:
 
-1. Download the Epic Installer and install a version of Unreal between versions 5.2 and 5.5.  Note that on version 5.5 with DirectX 11 there's a crash bug which can affect projects which has been fixed in Unreal's source and can be tracked [here](https://github.com/EpicGames/UnrealEngine/commit/e1b60c8c77dd568e51f8c61011a54a54e0c04e84).  Projects in Deadline Cloud should use DirectX 12 with UE 5.5.
+1. Download the Epic Installer and install a version of Unreal between versions 5.2 and 5.5.  Note that on version 5.5 with DirectX 11 there's a crash bug which can affect projects which has been fixed in Unreal's source and can be tracked [here](https://issues.unrealengine.com/issue/UE-276282).  Projects in Deadline Cloud should use DirectX 12 with UE 5.5.
 1. NVIDIA GRID drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
 
 ## Windows Long Paths

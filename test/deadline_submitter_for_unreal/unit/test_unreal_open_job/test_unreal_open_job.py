@@ -11,9 +11,12 @@ from openjd.model.v2023_09 import (
     Environment,
     Action,
     CommandString,
+    DataString,
     EnvironmentVariableValueString,
     CancelationMethodNotifyThenTerminate,
     CancelationMode,
+    JobTemplateName,
+    TaskParameterStringValue,
 )
 from deadline.client.job_bundle.submission import AssetReferences
 
@@ -331,8 +334,32 @@ class TestUnrealOpenJob:
         job_template_dict = fixtures.f_job_template_default()
         if steps:
             job_template_dict["steps"] = steps
+            job_template_dict["name"] = JobTemplateName(job_template_dict["name"])
+            for step in job_template_dict["steps"]:
+                step["script"]["actions"]["onRun"]["command"] = CommandString(
+                    step["script"]["actions"]["onRun"]["command"]
+                )
+                for embedded_file in step["script"]["embeddedFiles"]:
+                    embedded_file["data"] = DataString(embedded_file["data"])
+                for task_param_def in step["parameterSpace"]["taskParameterDefinitions"]:
+                    if task_param_def.get("type") in ["PATH", "STRING"]:
+                        task_param_def["range"] = [
+                            TaskParameterStringValue(range_elem)
+                            for range_elem in task_param_def["range"]
+                        ]
         if environments:
             job_template_dict["jobEnvironments"] = environments
+            for job_env in job_template_dict["jobEnvironments"]:
+                job_env["script"]["actions"]["onEnter"]["command"] = CommandString(
+                    job_env["script"]["actions"]["onEnter"]["command"]
+                )
+                job_env["script"]["actions"]["onExit"]["command"] = CommandString(
+                    job_env["script"]["actions"]["onExit"]["command"]
+                )
+                for embedded_file in job_env["script"]["embeddedFiles"]:
+                    embedded_file["data"] = DataString(embedded_file["data"])
+                for env_key, env_value in job_env.get("variables", {}).items():
+                    job_env["variables"][env_key] = EnvironmentVariableValueString(env_value)
         job_template = JobTemplate(**job_template_dict)
 
         # WHEN

@@ -2,8 +2,14 @@
 
 import unreal
 from typing import Optional, Union
-from openjd.model.v2023_09 import Environment, EnvironmentScript
-
+from openjd.model.v2023_09 import (
+    ArgString,
+    CommandString,
+    DataString,
+    Environment,
+    EnvironmentScript,
+    EnvironmentVariableValueString,
+)
 from deadline.unreal_submitter import settings
 from deadline.unreal_submitter.unreal_open_job.unreal_open_job_entity import UnrealOpenJobEntity
 from deadline.unreal_submitter.unreal_open_job.unreal_open_job_parameters_consistency import (
@@ -103,10 +109,34 @@ class UnrealOpenJobEnvironment(UnrealOpenJobEntity):
 
         environment_template_object = self.get_template_object()
         script = environment_template_object.get("script")
+        cast_vars = {}
+        if self._variables:
+            for key, value in self._variables.items():
+                cast_vars[key] = EnvironmentVariableValueString(value)
+        if script:
+            if script.get("actions", {}).get("onEnter"):
+                script["actions"]["onEnter"]["command"] = CommandString(
+                    script["actions"]["onEnter"]["command"]
+                )
+                if script["actions"]["onEnter"].get("args"):
+                    script["actions"]["onEnter"]["args"] = [
+                        ArgString(arg) for arg in script["actions"]["onEnter"]["args"]
+                    ]
+            if script.get("actions", {}).get("onExit"):
+                script["actions"]["onExit"]["command"] = CommandString(
+                    script["actions"]["onExit"]["command"]
+                )
+                if script["actions"]["onExit"].get("args"):
+                    script["actions"]["onExit"]["args"] = [
+                        ArgString(arg) for arg in script["actions"]["onExit"]["args"]
+                    ]
+            if script.get("embeddedFiles"):
+                for embedded_file in script["embeddedFiles"]:
+                    embedded_file["data"] = DataString(embedded_file["data"])
         return self.template_class(
             name=self.name,
             script=EnvironmentScript(**script) if script else None,
-            variables=self._variables if self._variables else None,
+            variables=cast_vars if cast_vars else None,
         )
 
 
