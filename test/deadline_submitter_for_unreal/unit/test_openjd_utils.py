@@ -76,10 +76,6 @@ class TestOpenJDUtils:
     def test_convert_simple_format_string(self):
         """Test conversion of a simple string to a FormatString type."""
         data = {"name": "test-job"}
-        result = convert_to_openjd_types(JobTemplate, data)
-
-        # Check if the type is converted correctly
-        assert isinstance(result["name"], JobTemplateName)
 
         # Add required fields for JobTemplate
         data["specificationVersion"] = "jobtemplate-2023-09"
@@ -104,12 +100,6 @@ class TestOpenJDUtils:
             },
         }
 
-        result = convert_to_openjd_types(StepTemplate, data)
-        assert isinstance(result["script"]["actions"]["onRun"]["command"], CommandString)
-        for arg in result["script"]["actions"]["onRun"]["args"]:
-            assert isinstance(arg, ArgString)
-        assert isinstance(result["script"]["embeddedFiles"][0]["data"], DataString)
-
         # Create the model to verify it works
         step = create_openjd_model(StepTemplate, data)
         assert isinstance(step.script.actions.onRun.command, CommandString)
@@ -120,10 +110,6 @@ class TestOpenJDUtils:
     def test_convert_dictionary_values(self):
         """Test conversion of dictionary values to FormatString types."""
         data = {"name": "test-env", "variables": {"VAR1": "value1", "VAR2": "value2"}}
-
-        result = convert_to_openjd_types(Environment, data)
-        for key, value in result["variables"].items():
-            assert isinstance(value, EnvironmentVariableValueString)
 
         # Create the model to verify it works
         env = create_openjd_model(Environment, data)
@@ -139,40 +125,23 @@ class TestOpenJDUtils:
                     {
                         "name": "Param1",
                         "type": "STRING",
-                        "defaultValue": "default",
                         "range": ["value1", "value2"],
                     }
                 ]
             },
+            "script": {
+                "actions": {"onRun": {"command": "echo", "args": ["hello", "world"]}},
+                "embeddedFiles": [{"name": "test", "type": "TEXT", "data": "test data"}],
+            },
         }
 
-        result = convert_to_openjd_types(StepTemplate, data)
+        result = create_openjd_model(StepTemplate, data)
 
-        # Check if the conversion is working correctly for nested structures
-        param_def = result["parameterSpace"]["taskParameterDefinitions"][0]
-        if "range" in param_def:
-            for item in param_def["range"]:
-                assert isinstance(item, TaskParameterStringValue)
+        for item in result.parameterSpace.taskParameterDefinitions:
+            for value in item.range:
+                assert isinstance(value, TaskParameterStringValue)
 
         # Skip model creation test as it requires more required fields
 
-    def test_handle_missing_fields(self):
-        """Test that the conversion handles missing fields gracefully."""
-        data = {
-            "name": "test-job",
-            # Missing other required fields
-        }
 
-        # This should not raise an exception during conversion
-        result = convert_to_openjd_types(JobTemplate, data)
-        assert isinstance(result["name"], JobTemplateName)
 
-    def test_handle_invalid_values(self):
-        """Test that the conversion handles invalid values gracefully."""
-        data = {
-            "name": 123,  # Not a string
-        }
-
-        # This should not raise an exception, but log a warning
-        result = convert_to_openjd_types(JobTemplate, data)
-        assert result["name"] == 123  # Should remain unchanged

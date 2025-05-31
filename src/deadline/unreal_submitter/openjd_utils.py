@@ -305,7 +305,7 @@ def create_openjd_model(model_class, data_dict):
 
                 logger.debug(f"Validation error - loc: {loc}, input_value: {input_value}")
                 logger.debug(f"Full error: {error}")
-                
+
                 if not loc or input_value is None:
                     continue
 
@@ -405,10 +405,9 @@ def create_openjd_model(model_class, data_dict):
     except Exception as e:
         # If we still have errors, fall back to the original converter
         logger.debug(
-            f"Targeted conversions were not sufficient, falling back to full conversion: {e}"
+            f"Targeted conversions were not sufficient, error was {e}"
         )
-        converted_dict = convert_to_openjd_types(model_class, data)
-        return model_class(**converted_dict)
+        raise
 
 
 def debug_task_parameter_string_value():
