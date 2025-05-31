@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import pytest
+import logging
 from openjd.model.v2023_09 import (
     JobTemplate, 
     StepTemplate, 
@@ -10,21 +11,38 @@ from openjd.model.v2023_09 import (
     ArgString,
     DataString,
     EnvironmentVariableValueString,
-    TaskParameterStringValue,
-    RangeString,
     AmountCapabilityName,
     AttributeCapabilityName,
-    AttributeCapabilityValue
+    AttributeCapabilityValue,
+    TaskParameterStringValue
 )
 from deadline.unreal_submitter.openjd_utils import (
     convert_to_openjd_types, 
     create_openjd_model, 
     is_format_string_class,
-    FORMAT_STRING_CLASSES
+    FORMAT_STRING_CLASSES,
+    debug_task_parameter_string_value
 )
 
 
 class TestOpenJDUtils:
+    
+    @pytest.fixture(autouse=True)
+    def setup_logging(self):
+        """Set up debug logging for tests."""
+        logger = logging.getLogger('deadline.unreal_submitter.openjd_utils')
+        logger.setLevel(logging.DEBUG)
+        # Add a console handler if not already present
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        yield
+        # Clean up after test
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
     
     def test_format_string_classes_list(self):
         """Test that our FORMAT_STRING_CLASSES list contains all expected classes."""
@@ -51,6 +69,10 @@ class TestOpenJDUtils:
         assert is_format_string_class(ArgString)
         assert not is_format_string_class(str)
         assert not is_format_string_class(int)
+    
+    def test_debug_task_parameter_string_value(self):
+        """Test the debug function for TaskParameterStringValue."""
+        assert debug_task_parameter_string_value() is True
     
     def test_convert_simple_format_string(self):
         """Test conversion of a simple string to a FormatString type."""
