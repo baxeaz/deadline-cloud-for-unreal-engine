@@ -8,19 +8,40 @@ from typing import Any, Dict, Type, get_type_hints, get_origin, get_args
 import inspect
 import logging
 from pydantic import BaseModel
+from openjd.model.v2023_09 import (
+    JobTemplateName,
+    CommandString,
+    ArgString,
+    DataString,
+    EnvironmentVariableValueString,
+    TaskParameterStringValue,
+    RangeString,
+    AmountCapabilityName,
+    AttributeCapabilityName,
+    AttributeCapabilityValue
+)
 
 logger = logging.getLogger(__name__)
 
+# Prebuild list of FormatString-derived classes
+FORMAT_STRING_CLASSES = [
+    JobTemplateName,
+    CommandString,
+    ArgString,
+    DataString,
+    EnvironmentVariableValueString,
+    TaskParameterStringValue,
+    RangeString,
+    AmountCapabilityName,
+    AttributeCapabilityName,
+    AttributeCapabilityValue
+]
+
 def is_format_string_class(cls):
     """
-    Check if a class is a FormatString subclass by checking its name and module.
+    Check if a class is a FormatString subclass by checking against our prebuilt list.
     """
-    return (
-        inspect.isclass(cls) and 
-        hasattr(cls, "__module__") and 
-        "openjd.model" in cls.__module__ and
-        any(base.__name__ == "FormatString" for base in cls.__mro__ if hasattr(base, "__name__"))
-    )
+    return cls in FORMAT_STRING_CLASSES
 
 def convert_to_openjd_types(model_class: Type[BaseModel], data_dict: Dict[str, Any]) -> Dict[str, Any]:
     """

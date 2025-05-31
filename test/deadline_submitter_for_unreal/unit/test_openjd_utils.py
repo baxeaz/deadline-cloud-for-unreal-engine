@@ -10,18 +10,45 @@ from openjd.model.v2023_09 import (
     ArgString,
     DataString,
     EnvironmentVariableValueString,
-    TaskParameterStringValue
+    TaskParameterStringValue,
+    RangeString,
+    AmountCapabilityName,
+    AttributeCapabilityName,
+    AttributeCapabilityValue
 )
-from deadline.unreal_submitter.openjd_utils import convert_to_openjd_types, create_openjd_model, is_format_string_class
+from deadline.unreal_submitter.openjd_utils import (
+    convert_to_openjd_types, 
+    create_openjd_model, 
+    is_format_string_class,
+    FORMAT_STRING_CLASSES
+)
 
 
 class TestOpenJDUtils:
     
+    def test_format_string_classes_list(self):
+        """Test that our FORMAT_STRING_CLASSES list contains all expected classes."""
+        expected_classes = [
+            JobTemplateName,
+            CommandString,
+            ArgString,
+            DataString,
+            EnvironmentVariableValueString,
+            TaskParameterStringValue,
+            RangeString,
+            AmountCapabilityName,
+            AttributeCapabilityName,
+            AttributeCapabilityValue
+        ]
+        
+        for cls in expected_classes:
+            assert cls in FORMAT_STRING_CLASSES
+    
     def test_is_format_string_class(self):
         """Test the is_format_string_class helper function."""
-        from openjd.model.v2023_09 import JobTemplateName
-        
         assert is_format_string_class(JobTemplateName)
+        assert is_format_string_class(CommandString)
+        assert is_format_string_class(ArgString)
         assert not is_format_string_class(str)
         assert not is_format_string_class(int)
     
