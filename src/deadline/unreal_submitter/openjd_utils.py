@@ -108,7 +108,8 @@ def convert_to_openjd_types(
 
         # Handle lists and dictionaries
         origin = get_origin(field_type)
-        if origin is list:
+        logger.debug(f"Field {field_name} origin: {origin}, type: {type(origin)}, is list: {origin is list}, == list: {origin == list}")
+        if origin == list:
             args = get_args(field_type)
             if args and len(args) > 0:
                 item_type = args[0]
@@ -187,7 +188,8 @@ def convert_to_openjd_types(
                                     logger.warning(
                                         f"Failed to convert list items to {union_type.__name__}: {e}"
                                     )
-        elif isinstance(origin, dict):
+        elif origin == dict:
+            logger.debug(f"Field {field_name} dict origin: {origin}, type: {type(origin)}, is dict: {origin is dict}, == dict: {origin == dict}")
             args = get_args(field_type)
             if len(args) > 1:
                 key_type, value_type = args
@@ -301,6 +303,9 @@ def create_openjd_model(model_class, data_dict):
                 loc = error.get("loc", [])
                 input_value = error.get("input")
 
+                logger.debug(f"Validation error - loc: {loc}, input_value: {input_value}")
+                logger.debug(f"Full error: {error}")
+                
                 if not loc or input_value is None:
                     continue
 
