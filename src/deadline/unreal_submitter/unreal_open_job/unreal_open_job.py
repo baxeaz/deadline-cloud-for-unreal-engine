@@ -550,29 +550,35 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         self._update_steps_settings_from_mrq_job(self._mrq_job)
         self._update_environments_settings_from_mrq_job(self._mrq_job)
 
-        if (self._mrq_job is not None and 
-            self._mrq_job.parameter_definition_overrides is not None and 
-            self._mrq_job.parameter_definition_overrides.parameters):
+        if (
+            self._mrq_job is not None
+            and self._mrq_job.parameter_definition_overrides is not None
+            and self._mrq_job.parameter_definition_overrides.parameters
+        ):
             self._extra_parameters = [
                 UnrealOpenJobParameterDefinition.from_unreal_param_definition(p)
                 for p in self._mrq_job.parameter_definition_overrides.parameters
             ]
 
-        if (self._mrq_job is not None and 
-            self._mrq_job.preset_overrides is not None and 
-            self._mrq_job.preset_overrides.job_shared_settings is not None):
+        if (
+            self._mrq_job is not None
+            and self._mrq_job.preset_overrides is not None
+            and self._mrq_job.preset_overrides.job_shared_settings is not None
+        ):
             self.job_shared_settings = JobSharedSettings.from_u_deadline_cloud_job_shared_settings(
                 self._mrq_job.preset_overrides.job_shared_settings
-        )
+            )
 
         # Job name set order:
         #   0. Job preset override (high priority)
         #   1. Get from data asset job preset struct
         #   2. Get from YAML template
         #   4. Get from mrq job name (shot name)
-        if (self._mrq_job is not None and 
-            self._mrq_job.preset_overrides is not None and 
-            self._mrq_job.preset_overrides.job_shared_settings is not None):
+        if (
+            self._mrq_job is not None
+            and self._mrq_job.preset_overrides is not None
+            and self._mrq_job.preset_overrides.job_shared_settings is not None
+        ):
             preset_override_name = self._mrq_job.preset_overrides.job_shared_settings.name
             if preset_override_name not in ["", "Untitled"]:
                 self._name = preset_override_name
