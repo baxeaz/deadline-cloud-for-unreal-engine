@@ -53,7 +53,6 @@ class TestOpenJDUtils:
             DataString,
             EnvironmentVariableValueString,
             TaskParameterStringValue,
-            RangeString,
             AmountCapabilityName,
             AttributeCapabilityName,
             AttributeCapabilityValue
