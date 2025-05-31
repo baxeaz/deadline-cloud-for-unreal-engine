@@ -10,7 +10,9 @@ from typing import Any, Optional
 from collections import OrderedDict
 from dataclasses import dataclass, asdict
 
-from openjd.model.v2023_09 import JobTemplate, JobTemplateName
+from openjd.model.v2023_09 import JobTemplate
+
+from deadline.unreal_submitter.openjd_utils import create_openjd_model
 
 from deadline.client.job_bundle.submission import AssetReferences
 from deadline.client.job_bundle import deadline_yaml_dump, create_job_history_bundle_dir
@@ -364,18 +366,20 @@ class UnrealOpenJob(UnrealOpenJobEntity):
         :rtype: JobTemplate
         """
 
-        job_template = self.template_class(
-            specificationVersion=settings.JOB_TEMPLATE_VERSION,
-            name=JobTemplateName(self.name),
-            parameterDefinitions=[
+        template_dict = {
+            "specificationVersion": settings.JOB_TEMPLATE_VERSION,
+            "name": self.name,
+            "parameterDefinitions": [
                 PARAMETER_DEFINITION_MAPPING[param["type"]].job_parameter_openjd_class(**param)
                 for param in self.get_template_object()["parameterDefinitions"]
             ],
-            steps=[s.build_template() for s in self._steps],
-            jobEnvironments=(
-                [e.build_template() for e in self._environments] if self._environments else None
-            ),
-        )
+            "steps": [s.build_template() for s in self._steps],
+        }
+        
+        if self._environments:
+            template_dict["jobEnvironments"] = [e.build_template() for e in self._environments]
+            
+        job_template = create_openjd_model(self.template_class, template_dict)
         return job_template
 
     def get_asset_references(self) -> AssetReferences:
