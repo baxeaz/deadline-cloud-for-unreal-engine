@@ -17,7 +17,6 @@ from openjd.model.v2023_09 import (
     AttributeCapabilityValue,
 )
 from deadline.unreal_submitter.openjd_utils import (
-    convert_to_openjd_types,
     create_openjd_model,
     is_format_string_class,
     FORMAT_STRING_CLASSES,
@@ -142,6 +141,3 @@ class TestOpenJDUtils:
                 assert isinstance(value, TaskParameterStringValue)
 
         # Skip model creation test as it requires more required fields
-
-
-

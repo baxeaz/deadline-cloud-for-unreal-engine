@@ -112,7 +112,7 @@ class UnrealOpenJobEnvironment(UnrealOpenJobEntity):
 
         script = environment_template_object.get("script")
         if script:
-            template_dict["script"] = EnvironmentScript(**script)
+            template_dict["script"] = create_openjd_model(EnvironmentScript, script)
 
         if self._variables:
             template_dict["variables"] = self._variables

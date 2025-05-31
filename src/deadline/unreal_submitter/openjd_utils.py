@@ -4,10 +4,8 @@
 Utility functions for working with OpenJD models.
 """
 
-from typing import Any, Dict, Type, get_type_hints, get_origin, get_args, Union
-import inspect
+from typing import get_origin, get_args, Union
 import logging
-from pydantic import BaseModel
 from openjd.model.v2023_09 import (
     JobTemplateName,
     CommandString,
@@ -65,200 +63,6 @@ def get_inner_type(field_type):
             return non_none_args[0]
         return field_type
     return field_type
-
-
-def convert_to_openjd_types(
-    model_class: Type[BaseModel], data_dict: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Recursively convert dictionary values to appropriate OpenJD types based on the model class.
-
-    Args:
-        model_class: The OpenJD model class that will be instantiated with the dictionary
-        data_dict: Dictionary containing the data to be converted
-
-    Returns:
-        Dictionary with values converted to appropriate OpenJD types
-    """
-    if data_dict is None:
-        return None
-
-    result = data_dict.copy()
-    logger.debug(f"Converting data for model class: {model_class.__name__}")
-
-    # Get type hints for the model class
-    try:
-        type_hints = get_type_hints(model_class)
-    except (TypeError, AttributeError) as e:
-        logger.debug(f"Failed to get type hints for {model_class.__name__}: {e}")
-        return result
-
-    for field_name, field_type in type_hints.items():
-        if field_name not in result:
-            continue
-
-        value = result[field_name]
-        if value is None:
-            continue
-
-        logger.debug(f"Processing field: {field_name}, type: {field_type}, value: {value}")
-
-        # Handle Optional types
-        field_type = get_inner_type(field_type)
-
-        # Handle lists and dictionaries
-        origin = get_origin(field_type)
-        logger.debug(f"Field {field_name} origin: {origin}, type: {type(origin)}, is list: {origin is list}, == list: {origin == list}")
-        if origin == list:
-            args = get_args(field_type)
-            if args and len(args) > 0:
-                item_type = args[0]
-                # Handle Optional item type
-                item_type = get_inner_type(item_type)
-                logger.debug(f"List item type: {item_type}")
-
-                # Check if item_type is a subclass of BaseModel
-                if inspect.isclass(item_type) and issubclass(item_type, BaseModel):
-                    # Handle list of models
-                    if isinstance(value, list):
-                        result[field_name] = [
-                            (
-                                convert_to_openjd_types(item_type, item)
-                                if isinstance(item, dict)
-                                else item
-                            )
-                            for item in value
-                        ]
-                # Check if item_type is a FormatString subclass
-                elif is_format_string_class(item_type):
-                    logger.debug(f"Converting list items to {item_type.__name__}")
-                    if isinstance(value, list):
-                        try:
-                            converted_items = []
-                            for item in value:
-                                if isinstance(item, str):
-                                    logger.debug(
-                                        f"Converting list item: {item} to {item_type.__name__}"
-                                    )
-                                    converted_item = item_type(item)
-                                    logger.debug(
-                                        f"Converted to: {converted_item}, type: {type(converted_item)}"
-                                    )
-                                    converted_items.append(converted_item)
-                                else:
-                                    converted_items.append(item)
-                            result[field_name] = converted_items
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to convert list items to {item_type.__name__}: {e}"
-                            )
-                # Handle Union types for list items
-                elif get_origin(item_type) is Union or get_origin(item_type) == Union:
-                    # For Union types, we need to check each possible type
-                    union_args = get_args(item_type)
-                    for union_type in union_args:
-                        if (
-                            is_format_string_class(union_type)
-                            and field_name == "range"
-                            and "type" in result
-                            and result["type"] == "STRING"
-                        ):
-                            # Special handling for TaskParameterStringValue in range fields
-                            logger.debug(
-                                f"Converting list items to {union_type.__name__} for STRING parameter range"
-                            )
-                            if isinstance(value, list):
-                                try:
-                                    converted_items = []
-                                    for item in value:
-                                        if isinstance(item, str):
-                                            logger.debug(
-                                                f"Converting list item: {item} to {union_type.__name__}"
-                                            )
-                                            converted_item = TaskParameterStringValue(item)
-                                            logger.debug(
-                                                f"Converted to: {converted_item}, type: {type(converted_item)}"
-                                            )
-                                            converted_items.append(converted_item)
-                                        else:
-                                            converted_items.append(item)
-                                    result[field_name] = converted_items
-                                    break  # Found the right type, no need to check others
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Failed to convert list items to {union_type.__name__}: {e}"
-                                    )
-        elif origin == dict:
-            logger.debug(f"Field {field_name} dict origin: {origin}, type: {type(origin)}, is dict: {origin is dict}, == dict: {origin == dict}")
-            args = get_args(field_type)
-            if len(args) > 1:
-                key_type, value_type = args
-                # Handle Optional value type
-                value_type = get_inner_type(value_type)
-                # Check if value_type is a FormatString subclass
-                if is_format_string_class(value_type):
-                    logger.debug(f"Converting dict values to {value_type.__name__}")
-                    if isinstance(value, dict):
-                        try:
-                            converted_dict = {}
-                            for k, v in value.items():
-                                if isinstance(v, str):
-                                    logger.debug(
-                                        f"Converting dict value: {v} to {value_type.__name__}"
-                                    )
-                                    converted_value = value_type(v)
-                                    logger.debug(
-                                        f"Converted to: {converted_value}, type: {type(converted_value)}"
-                                    )
-                                    converted_dict[k] = converted_value
-                                else:
-                                    converted_dict[k] = v
-                            result[field_name] = converted_dict
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to convert dict values to {value_type.__name__}: {e}"
-                            )
-                # If value_type is a BaseModel, recursively convert each value
-                elif inspect.isclass(value_type) and issubclass(value_type, BaseModel):
-                    if isinstance(value, dict):
-                        result[field_name] = {
-                            k: convert_to_openjd_types(value_type, v) if isinstance(v, dict) else v
-                            for k, v in value.items()
-                        }
-        # Handle nested models
-        elif inspect.isclass(field_type) and issubclass(field_type, BaseModel):
-            if isinstance(value, dict):
-                # Recursively convert nested models
-                result[field_name] = convert_to_openjd_types(field_type, value)
-        # Handle FormatString types
-        elif is_format_string_class(field_type):
-            if isinstance(value, str):
-                try:
-                    logger.debug(f"Converting {field_name}: {value} to {field_type.__name__}")
-                    converted_value = field_type(value)
-                    logger.debug(f"Converted to: {converted_value}, type: {type(converted_value)}")
-                    result[field_name] = converted_value
-                except Exception as e:
-                    logger.warning(f"Failed to convert {field_name} to {field_type.__name__}: {e}")
-
-    return result
-
-
-def create_openjd_model_parse_converter(model_class, data_dict):
-    """
-    Create an OpenJD model instance with proper type conversions using the parse-based converter.
-
-    This approach recursively parses the model structure and applies conversions based on type hints.
-
-    Args:
-        model_class: The OpenJD model class to instantiate
-        data_dict: Dictionary containing the data
-
-    Returns:
-        Instance of the model_class
-    """
-    converted_dict = convert_to_openjd_types(model_class, data_dict)
-    return model_class(**converted_dict)
 
 
 def create_openjd_model(model_class, data_dict):
@@ -404,9 +208,7 @@ def create_openjd_model(model_class, data_dict):
         return model_class(**data)
     except Exception as e:
         # If we still have errors, fall back to the original converter
-        logger.debug(
-            f"Targeted conversions were not sufficient, error was {e}"
-        )
+        logger.debug(f"Targeted conversions were not sufficient, error was {e}")
         raise
 
 
