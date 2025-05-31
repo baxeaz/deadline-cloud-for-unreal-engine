@@ -1,3 +1,5 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
 """
 Utility functions for working with OpenJD models.
 """
@@ -6,10 +8,19 @@ from typing import Any, Dict, Type, get_type_hints, get_origin, get_args
 import inspect
 import logging
 from pydantic import BaseModel
-from openjd.model._types import FormatString
-from openjd.model.v2023_09 import ModelParsingContext
 
 logger = logging.getLogger(__name__)
+
+def is_format_string_class(cls):
+    """
+    Check if a class is a FormatString subclass by checking its name and module.
+    """
+    return (
+        inspect.isclass(cls) and 
+        hasattr(cls, "__module__") and 
+        "openjd.model" in cls.__module__ and
+        any(base.__name__ == "FormatString" for base in cls.__mro__ if hasattr(base, "__name__"))
+    )
 
 def convert_to_openjd_types(model_class: Type[BaseModel], data_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -56,8 +67,8 @@ def convert_to_openjd_types(model_class: Type[BaseModel], data_dict: Dict[str, A
                             convert_to_openjd_types(item_type, item) if isinstance(item, dict) else item
                             for item in value
                         ]
-                # Check if item_type is a subclass of FormatString
-                elif inspect.isclass(item_type) and issubclass(item_type, FormatString):
+                # Check if item_type is a FormatString subclass
+                elif is_format_string_class(item_type):
                     # Handle list of FormatString
                     if isinstance(value, list):
                         try:
@@ -71,8 +82,8 @@ def convert_to_openjd_types(model_class: Type[BaseModel], data_dict: Dict[str, A
             args = get_args(field_type)
             if len(args) > 1:
                 key_type, value_type = args
-                # Check if value_type is a subclass of FormatString
-                if inspect.isclass(value_type) and issubclass(value_type, FormatString):
+                # Check if value_type is a FormatString subclass
+                if is_format_string_class(value_type):
                     # Handle dict with FormatString values
                     if isinstance(value, dict):
                         try:
@@ -87,7 +98,7 @@ def convert_to_openjd_types(model_class: Type[BaseModel], data_dict: Dict[str, A
             if isinstance(value, dict):
                 result[field_name] = convert_to_openjd_types(field_type, value)
         # Handle FormatString types
-        elif inspect.isclass(field_type) and issubclass(field_type, FormatString):
+        elif is_format_string_class(field_type):
             if isinstance(value, str):
                 try:
                     result[field_name] = field_type(value)

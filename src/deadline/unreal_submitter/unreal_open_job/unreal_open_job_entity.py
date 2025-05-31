@@ -21,10 +21,6 @@ from openjd.model.v2023_09 import (
 )
 
 from deadline.unreal_submitter.openjd_utils import create_openjd_model
-    StringTaskParameterDefinition,
-    TaskParameterStringValue,
-    PathTaskParameterDefinition,
-)
 
 from deadline.client.job_bundle.submission import AssetReferences
 

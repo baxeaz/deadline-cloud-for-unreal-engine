@@ -17,7 +17,6 @@ from openjd.model.v2023_09 import (
 )
 
 from deadline.unreal_submitter.openjd_utils import create_openjd_model
-)
 
 from openjd.model.v2023_09._model import StepDependency
 

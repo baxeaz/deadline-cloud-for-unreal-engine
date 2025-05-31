@@ -5,22 +5,32 @@ from openjd.model.v2023_09 import (
     JobTemplate, 
     StepTemplate, 
     Environment,
-    CommandString,
-    DataString,
     JobTemplateName,
+    CommandString,
     ArgString,
-    TaskParameterStringValue,
-    EnvironmentVariableValueString
+    DataString,
+    EnvironmentVariableValueString,
+    TaskParameterStringValue
 )
-from deadline.unreal_submitter.openjd_utils import convert_to_openjd_types, create_openjd_model
+from deadline.unreal_submitter.openjd_utils import convert_to_openjd_types, create_openjd_model, is_format_string_class
 
 
 class TestOpenJDUtils:
+    
+    def test_is_format_string_class(self):
+        """Test the is_format_string_class helper function."""
+        from openjd.model.v2023_09 import JobTemplateName
+        
+        assert is_format_string_class(JobTemplateName)
+        assert not is_format_string_class(str)
+        assert not is_format_string_class(int)
     
     def test_convert_simple_format_string(self):
         """Test conversion of a simple string to a FormatString type."""
         data = {"name": "test-job"}
         result = convert_to_openjd_types(JobTemplate, data)
+        
+        # Check if the type is converted correctly
         assert isinstance(result["name"], JobTemplateName)
         
         # Create the model to verify it works
