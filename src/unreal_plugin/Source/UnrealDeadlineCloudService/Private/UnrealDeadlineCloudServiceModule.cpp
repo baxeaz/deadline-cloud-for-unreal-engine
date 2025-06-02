@@ -99,4 +99,4 @@ void FUnrealDeadlineCloudServiceModule::ShutdownModule()
 
 #undef LOCTEXT_NAMESPACE
 
-IMPLEMENT_MODULE(FUnrealDeadlineCloudServiceModule, UnrealDeadlineCloudServiceEditorMode)
+IMPLEMENT_MODULE(FUnrealDeadlineCloudServiceModule, UnrealDeadlineCloudService)

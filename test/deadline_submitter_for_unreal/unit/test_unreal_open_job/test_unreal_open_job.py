@@ -3,6 +3,7 @@
 import sys
 import pytest
 from unittest.mock import patch, Mock, MagicMock
+from openjd.model import parse_model
 from openjd.model.v2023_09 import (
     JobTemplate,
     StepTemplate,
@@ -15,6 +16,7 @@ from openjd.model.v2023_09 import (
     CancelationMethodNotifyThenTerminate,
     CancelationMode,
 )
+
 from deadline.client.job_bundle.submission import AssetReferences
 
 from test.deadline_submitter_for_unreal import fixtures
@@ -333,7 +335,7 @@ class TestUnrealOpenJob:
             job_template_dict["steps"] = steps
         if environments:
             job_template_dict["jobEnvironments"] = environments
-        job_template = JobTemplate(**job_template_dict)
+        job_template = parse_model(model=JobTemplate, obj=job_template_dict)
 
         # WHEN
         serialized = UnrealOpenJob.serialize_template(job_template)
