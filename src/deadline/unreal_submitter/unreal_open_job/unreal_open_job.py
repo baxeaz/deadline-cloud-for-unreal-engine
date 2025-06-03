@@ -12,7 +12,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, asdict
 
 from openjd.model import parse_model
-from openjd.model.v2023_09 import JobTemplate
+from openjd.model.v2023_09 import JobTemplate, ExtensionName
 
 from deadline.client.job_bundle.submission import AssetReferences
 from deadline.client.job_bundle import deadline_yaml_dump, create_job_history_bundle_dir
@@ -241,6 +241,7 @@ class UnrealOpenJob(UnrealOpenJobEntity):
         template_json = json.loads(template.json(exclude_none=True))
         ordered_keys = [
             "specificationVersion",
+            "extensions",
             "name",
             "parameterDefinitions",
             "jobEnvironments",
@@ -377,10 +378,20 @@ class UnrealOpenJob(UnrealOpenJobEntity):
             "steps": [s.build_template() for s in self._steps],
         }
 
+        extension_list = self.get_template_object().get("extensions")
+
+        if extension_list:
+            template_dict["extensions"] = extension_list
+
         if self._environments:
             template_dict["jobEnvironments"] = [e.build_template() for e in self._environments]
 
-        job_template = parse_model(model=self.template_class, obj=template_dict)
+        # Use all available extension names from the ExtensionName enum
+        supported_extensions = [extension.value for extension in ExtensionName]
+
+        job_template = parse_model(
+            model=self.template_class, obj=template_dict, supported_extensions=supported_extensions
+        )
         return job_template
 
     def get_asset_references(self) -> AssetReferences:
