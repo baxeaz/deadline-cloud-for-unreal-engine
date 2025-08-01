@@ -114,14 +114,6 @@ which is referencing to ``src/unreal_plugin/Content/Python/openjd_templates/p4/p
     :language: yaml
     :linenos:
 
-.. warning:: This environment apply P4 credentials from AWS Secretes Manager by printing them to the Job log
-   with prefix ``openjd_env:``. Please, see `OpenJD Environment`_ documentation about sharing new
-   environment variables across actions and other environments in runtime.
-
-   **Consider adding a CloudWatch data protection policy to your account if you'll be echoing***
-   **sensitive information. For example, this will apply a global policy to your CloudWatch logs**
-   **which suppresses "openjd_env": lines which appear to be setting environment variables:**
-
    .. literalinclude:: ../resources/logs_policy_example.sh
     :language: sh
     :linenos:

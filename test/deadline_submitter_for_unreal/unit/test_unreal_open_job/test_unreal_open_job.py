@@ -15,6 +15,7 @@ from openjd.model.v2023_09 import (
     EnvironmentVariableValueString,
     CancelationMethodNotifyThenTerminate,
     CancelationMode,
+    ExtensionName,
 )
 
 from deadline.client.job_bundle.submission import AssetReferences
@@ -343,6 +344,44 @@ class TestUnrealOpenJob:
         # THEN
         assert isinstance(serialized, dict)
         assert list(serialized.keys()) == expected_keys
+
+    @pytest.mark.parametrize(
+        "steps, environments, expected_keys",
+        [
+            (
+                [fixtures.f_step_template_default()],
+                [fixtures.f_environment_template_default()],
+                [
+                    "specificationVersion",
+                    "extensions",
+                    "name",
+                    "parameterDefinitions",
+                    "jobEnvironments",
+                    "steps",
+                ],
+            ),
+        ],
+    )
+    def test_serialize_template_extension(self, steps, environments, expected_keys):
+        # GIVEN
+        extension_list = ["REDACTED_ENV_VARS"]
+        job_template_dict = fixtures.f_job_template_default()
+        job_template_dict["extensions"] = extension_list
+        job_template_dict["steps"] = steps
+        job_template_dict["jobEnvironments"] = environments
+
+        supported_extensions = [extension.value for extension in ExtensionName]
+        job_template = parse_model(
+            model=JobTemplate, obj=job_template_dict, supported_extensions=supported_extensions
+        )
+
+        # WHEN
+        serialized = UnrealOpenJob.serialize_template(job_template)
+
+        # THEN
+        assert isinstance(serialized, dict)
+        assert list(serialized.keys()) == expected_keys
+        assert serialized["extensions"] == extension_list
 
     @patch(
         "deadline.unreal_submitter.unreal_open_job.unreal_open_job_entity."

@@ -1,4 +1,6 @@
 specificationVersion: jobtemplate-2023-09
+extensions:
+  - REDACTED_ENV_VARS
 name: RenderJob
 parameterDefinitions:
 - name: ProjectRelativePath

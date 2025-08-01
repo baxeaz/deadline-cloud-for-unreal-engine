@@ -67,7 +67,11 @@ class TestUnrealP4UtilsApp:
         [
             (
                 {"P4PORT": "port", "P4USER": "user", "P4PASSWD": "pass"},
-                ["openjd_env: P4PORT=port", "openjd_env: P4USER=user", "openjd_env: P4PASSWD=pass"],
+                [
+                    "openjd_redacted_env: P4PORT=port",
+                    "openjd_redacted_env: P4USER=user",
+                    "openjd_redacted_env: P4PASSWD=pass",
+                ],
             ),
             ({}, []),
         ],
