@@ -335,15 +335,27 @@ class UnrealRenderStepHandler(BaseStepHandler):
                 job_configuration_path=args.get("job_configuration_path", ""),
             )
 
+        if output_settings.use_custom_playback_range:
+            total_frame_range = (
+                output_settings.custom_end_frame - output_settings.custom_start_frame
+            ) + 1
+            original_custom_start = output_settings.custom_start_frame
+            original_custom_end = output_settings.custom_end_frame
+
         for job in subsystem.get_queue().get_jobs():
             if "chunk_size" in args and "chunk_id" in args:
                 chunk_size: int = args["chunk_size"]
                 chunk_id: int = args["chunk_id"]
-                UnrealRenderStepHandler.enable_shots_by_chunk(
-                    render_job=job,
-                    task_chunk_size=chunk_size,
-                    task_chunk_id=chunk_id,
-                )
+                if output_settings.use_custom_playback_range:
+                    output_settings.custom_start_frame = original_custom_start + (chunk_id * chunk_size)
+                    output_settings.custom_end_frame = min(output_settings.custom_start_frame + chunk_size, original_custom_end)
+                    logger.info(f"Rendering custom range from {output_settings.custom_start_frame} to {output_settings.custom_end_frame}
+                else:
+                    UnrealRenderStepHandler.enable_shots_by_chunk(
+                        render_job=job,
+                        task_chunk_size=chunk_size,
+                        task_chunk_id=chunk_id,
+                    )
 
             if "output_path" in args:
                 if not os.path.exists(args["output_path"]):

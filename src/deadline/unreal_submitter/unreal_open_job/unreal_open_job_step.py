@@ -470,6 +470,16 @@ class RenderUnrealOpenJobStep(UnrealOpenJobStep):
             task_chunk_size = 1  # by default 1 chunk consist of 1 shot
         else:
             task_chunk_size = task_chunk_size_param.range[0]
+        output_setting = self.mrq_job.get_configuration().find_setting_by_class(
+            unreal.MoviePipelineOutputSetting
+        )
+        # Render by frame range
+        if len(enabled_shots) == 1 and output_settings.use_custom_playback_range and task_chunk_size > 1:
+            total_frame_range = (
+                output_settings.custom_end_frame - output_settings.custom_start_frame
+            ) + 1
+            total_chunk_ids_count = int(total_frame_range / task_chunk_size) + 1
+            logger.info(f"Rendering frame {output_settings.custom_start_frame} to {output_settings.custom_end_frame} in {total_chunk_ids_count} total chunks")
 
         task_chunk_ids_count = math.ceil(len(enabled_shots) / task_chunk_size)
 
