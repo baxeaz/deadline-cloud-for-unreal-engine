@@ -85,10 +85,10 @@ if unreal:
                         level_sequence.get_playback_end() - level_sequence.get_playback_start()
                     )
 
-                if self.totalFrameRange == 0:
-                    logger.error(
-                        "Render Executor: Error: Cannot render the Queue with frame range of zero length"
-                    )
+                #if self.totalFrameRange == 0:
+                #    logger.error(
+                #        "Render Executor: Error: Cannot render the Queue with frame range of zero length"
+                #    )
 
             # don't forget to call parent's execute to run the render process
             super().execute(queue)
