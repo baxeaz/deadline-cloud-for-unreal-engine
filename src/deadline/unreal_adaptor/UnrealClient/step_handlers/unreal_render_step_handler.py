@@ -335,21 +335,28 @@ class UnrealRenderStepHandler(BaseStepHandler):
                 job_configuration_path=args.get("job_configuration_path", ""),
             )
 
+        output_settings = subsystem.get_queue().get_jobs()[0].get_configuration().find_or_add_setting_by_class(
+                unreal.MoviePipelineOutputSetting
+            )
+        custom_frame_range = False
         if output_settings.use_custom_playback_range:
             total_frame_range = (
                 output_settings.custom_end_frame - output_settings.custom_start_frame
             ) + 1
             original_custom_start = output_settings.custom_start_frame
             original_custom_end = output_settings.custom_end_frame
-
+            custom_frame_range = True
         for job in subsystem.get_queue().get_jobs():
             if "chunk_size" in args and "chunk_id" in args:
                 chunk_size: int = args["chunk_size"]
                 chunk_id: int = args["chunk_id"]
-                if output_settings.use_custom_playback_range:
-                    output_settings.custom_start_frame = original_custom_start + (chunk_id * chunk_size)
-                    output_settings.custom_end_frame = min(output_settings.custom_start_frame + chunk_size, original_custom_end)
-                    logger.info(f"Rendering custom range from {output_settings.custom_start_frame} to {output_settings.custom_end_frame}")
+                if custom_frame_range:
+                    job_output_settings = job.get_configuration().find_or_add_setting_by_class(
+                        unreal.MoviePipelineOutputSetting
+                    )
+                    job_output_settings.custom_start_frame = original_custom_start + (chunk_id * chunk_size)
+                    job_output_settings.custom_end_frame = min(output_settings.custom_start_frame + chunk_size, original_custom_end)
+                    logger.info(f"Rendering custom frame range from {job_output_settings.custom_start_frame} to {job_output_settings.custom_end_frame}")
                 else:
                     UnrealRenderStepHandler.enable_shots_by_chunk(
                         render_job=job,
