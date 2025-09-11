@@ -349,7 +349,7 @@ class UnrealRenderStepHandler(BaseStepHandler):
                 if output_settings.use_custom_playback_range:
                     output_settings.custom_start_frame = original_custom_start + (chunk_id * chunk_size)
                     output_settings.custom_end_frame = min(output_settings.custom_start_frame + chunk_size, original_custom_end)
-                    logger.info(f"Rendering custom range from {output_settings.custom_start_frame} to {output_settings.custom_end_frame}
+                    logger.info(f"Rendering custom range from {output_settings.custom_start_frame} to {output_settings.custom_end_frame}")
                 else:
                     UnrealRenderStepHandler.enable_shots_by_chunk(
                         render_job=job,
