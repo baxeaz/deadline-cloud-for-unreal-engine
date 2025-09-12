@@ -85,10 +85,10 @@ if unreal:
                         level_sequence.get_playback_end() - level_sequence.get_playback_start()
                     )
 
-                #if self.totalFrameRange == 0:
-                #    logger.error(
-                #        "Render Executor: Error: Cannot render the Queue with frame range of zero length"
-                #    )
+                if self.totalFrameRange == 0:
+                    logger.error(
+                        "Render Executor: Error: Cannot render the Queue with frame range of zero length"
+                    )
 
             # don't forget to call parent's execute to run the render process
             super().execute(queue)
@@ -342,7 +342,7 @@ class UnrealRenderStepHandler(BaseStepHandler):
         if output_settings.use_custom_playback_range:
             total_frame_range = (
                 output_settings.custom_end_frame - output_settings.custom_start_frame
-            ) + 1
+            )
             original_custom_start = output_settings.custom_start_frame
             original_custom_end = output_settings.custom_end_frame
             custom_frame_range = True
@@ -356,7 +356,14 @@ class UnrealRenderStepHandler(BaseStepHandler):
                     )
                     job_output_settings.custom_start_frame = original_custom_start + (chunk_id * chunk_size)
                     job_output_settings.custom_end_frame = min(output_settings.custom_start_frame + chunk_size, original_custom_end)
-                    logger.info(f"Rendering custom frame range from {job_output_settings.custom_start_frame} to {job_output_settings.custom_end_frame}")
+                    level_sequence = unreal.EditorAssetLibrary.load_asset(
+                        unreal.SystemLibrary.conv_soft_object_reference_to_string(
+                            unreal.SystemLibrary.conv_soft_obj_path_to_soft_obj_ref(job.sequence)
+                        )
+                    )
+                    level_sequence.set_playback_start(job_output_settings.custom_start_frame)
+                    level_sequence.set_playback_end(job_output_settings.custom_end_frame)
+                    logger.info(f"Rendering custom frame range from {job_output_settings.custom_start_frame} to {job_output_settings.custom_end_frame} with sequence playback start {level_sequence.get_playback_start()} end {level_sequence.get_playback_end()}")
                 else:
                     UnrealRenderStepHandler.enable_shots_by_chunk(
                         render_job=job,
