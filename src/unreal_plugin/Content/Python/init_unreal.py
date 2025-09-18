@@ -111,7 +111,7 @@ if remote_execution != "True":
     from deadline.client.api import precache_clients
 
     def init_s3_client():
-        logger.info("INITIALIZING S3 CLIENT")
+        logger.info("INITIALIZING S3 CLIENT Test")
         precache_clients()
         logger.info("DONE INITIALIZING S3 CLIENT")
 
