@@ -2,6 +2,7 @@
 
 import unreal
 import threading
+import time
 import traceback
 from enum import Enum
 from typing import Callable
@@ -33,6 +34,21 @@ telemetry_client.update_common_details(
 
 
 logger = get_logger()
+
+import cProfile
+import pstats
+from contextlib import contextmanager
+
+
+@contextmanager
+def profile_function(sort_by="cumtime", lines_to_show=20):
+    pr = cProfile.Profile()
+    pr.enable()
+    yield
+    pr.disable()
+    stats = pstats.Stats(pr)
+    stats.sort_stats(sort_by)
+    stats.print_stats(lines_to_show)
 
 
 def error_notify(
@@ -157,20 +173,29 @@ class UnrealSubmitter:
         :type job_bundle_path: str
         """
 
+        def print_callback(output: str):
+            logger.info(f"create_job_from_job_bundle: {output}")
+
         try:
-            job_id = create_job_from_job_bundle(
-                job_bundle_dir=job_bundle_path,
-                hashing_progress_callback=lambda hash_metadata: self._hash_progress(hash_metadata),
-                upload_progress_callback=lambda upload_metadata: self._upload_progress(
-                    upload_metadata
-                ),
-                create_job_result_callback=lambda: self._create_job_result(),
-                from_gui=True,
-                interactive_confirmation_callback=self.show_confirmation_dialog,
-            )
-            if job_id:
-                logger.info(f"Job creation result: {job_id}")
-                self.submitted_job_ids.append(job_id)
+            start_time = time.time()
+            with profile_function():
+                job_id = create_job_from_job_bundle(
+                    job_bundle_dir=job_bundle_path,
+                    hashing_progress_callback=lambda hash_metadata: self._hash_progress(
+                        hash_metadata
+                    ),
+                    upload_progress_callback=lambda upload_metadata: self._upload_progress(
+                        upload_metadata
+                    ),
+                    create_job_result_callback=lambda: self._create_job_result(),
+                    from_gui=True,
+                    interactive_confirmation_callback=self.show_confirmation_dialog,
+                    print_function_callback=print_callback,
+                )
+                logger.info(f"create_job_from_job_bundle took {time.time() - start_time} seconds")
+                if job_id:
+                    logger.info(f"Job creation result: {job_id}")
+                    self.submitted_job_ids.append(job_id)
 
         except AssetSyncCancelledError as e:
             logger.warning(str(e))
@@ -252,6 +277,8 @@ class UnrealSubmitter:
         Submit OpenJobs to the Deadline Cloud
         """
 
+        start_time = time.time()
+        logger.info(f"Begginning submit_jobs at {start_time}")
         del self.submitted_job_ids[:]
 
         for job in self._jobs:
@@ -262,7 +289,8 @@ class UnrealSubmitter:
             self._submission_failed_message = ""
 
             job_bundle_path = job.create_job_bundle()
-
+            bundle_done = time.time()
+            logger.info(f"Bundle created after {bundle_done - start_time} seconds")
             t = threading.Thread(target=self._start_submit, args=(job_bundle_path,), daemon=True)
             t.start()
 
@@ -295,6 +323,9 @@ class UnrealSubmitter:
         )
 
         del self._jobs[:]
+
+        end_time = time.time()
+        logger.info(f"Finished submit_jobs at {end_time}, total time {end_time - start_time}")
 
         return self.submitted_job_ids
 
