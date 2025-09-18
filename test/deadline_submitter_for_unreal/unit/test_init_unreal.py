@@ -1,0 +1,36 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+import sys
+import os
+
+# Add the init_unreal module to path since it's not in the standard package structure
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "../../../src/unreal_plugin/Content/Python")
+)
+
+from deadline.client.api import precache_clients
+
+
+class TestBackgroundInitS3Client:
+    """Test the background_init_s3_client function"""
+
+    def test_background_init_s3_client_consistency(self):
+        """Test that background_init_s3_client produces consistent results with direct precache_clients calls"""
+        from init_unreal import background_init_s3_client
+
+        # Call background_init_s3_client and get the thread
+        thread = background_init_s3_client()
+
+        # Wait for the thread to complete
+        thread.join(timeout=10.0)
+
+        # Get the result from the thread
+        first_result = thread.result_container.get("result")
+
+        # Call precache_clients again without parameters
+        second_result = precache_clients()
+
+        # Verify that both calls return the same client objects
+        assert first_result == second_result
+        assert first_result is not None
+        assert second_result is not None
