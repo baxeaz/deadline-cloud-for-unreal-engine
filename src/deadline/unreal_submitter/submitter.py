@@ -262,7 +262,6 @@ class UnrealSubmitter:
             self._submission_failed_message = ""
 
             job_bundle_path = job.create_job_bundle()
-
             t = threading.Thread(target=self._start_submit, args=(job_bundle_path,), daemon=True)
             t.start()
 
