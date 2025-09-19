@@ -8,15 +8,14 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "../../../src/unreal_plugin/Content/Python")
 )
 
-from deadline.client.api import precache_clients
-
 
 class TestBackgroundInitS3Client:
     """Test the background_init_s3_client function"""
 
-    def test_background_init_s3_client_consistency(self):
+    def test_background_init_s3_client_consistency(self, aws_test_config):
         """Test that background_init_s3_client produces consistent results with direct precache_clients calls"""
         from init_unreal import background_init_s3_client
+        from deadline.client.api import precache_clients
 
         # Call background_init_s3_client and get the thread
         thread = background_init_s3_client()

@@ -5,7 +5,8 @@ import json
 import sys
 import unreal
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+from botocore.client import BaseClient
 
 
 def get_ue_path(in_path: str) -> Optional[str]:
@@ -82,7 +83,8 @@ def background_init_s3_client():
     from deadline.client.api import precache_clients
 
     deadline = api.get_boto3_client("deadline")
-    result_container = {}
+
+    result_container: dict[str, Tuple[BaseClient, BaseClient]] = {}
 
     def init_s3_client():
         logger.info("INITIALIZING S3 CLIENT")
@@ -92,7 +94,8 @@ def background_init_s3_client():
 
     thread = threading.Thread(target=init_s3_client, daemon=True, name="S3ClientInit")
     thread.start()
-    thread.result_container = result_container
+    thread.result_container = result_container  # type: ignore[attr-defined]
+
     return thread
 
 
