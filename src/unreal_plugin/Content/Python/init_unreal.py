@@ -77,28 +77,6 @@ def sync_mrq_dependencies(dependencies_descriptor_path: str) -> None:
     asset_registry.scan_paths_synchronous(ue_paths, True, True)
 
 
-def background_init_s3_client():
-    import threading
-    from deadline.client.api import precache_clients
-    from botocore.client import BaseClient
-
-    deadline = api.get_boto3_client("deadline")
-
-    result_container: dict[str, Tuple[BaseClient, BaseClient]] = {}
-
-    def init_s3_client():
-        logger.info("INITIALIZING S3 CLIENT")
-        result = precache_clients(deadline=deadline)
-        result_container["result"] = result
-        logger.info("DONE INITIALIZING S3 CLIENT")
-
-    thread = threading.Thread(target=init_s3_client, daemon=True, name="S3ClientInit")
-    thread.start()
-    thread.result_container = result_container  # type: ignore[attr-defined]
-
-    return thread
-
-
 remote_execution = os.getenv("REMOTE_EXECUTION", "False")
 if remote_execution != "True":
 
@@ -131,18 +109,18 @@ if remote_execution != "True":
 
     logger.info(f'DEADLINE CLOUD PATH: {os.getenv("DEADLINE_CLOUD")}')
 
-    background_init_s3_client()
-
     # These unused imports are REQUIRED!!!
     # Unreal Engine loads any init_unreal.py it finds in its search paths.
     # These imports finish the setup for the plugin.
-    from settings import DeadlineCloudSettingsLibraryImplementation  # noqa: F401
+    from settings import DeadlineCloudSettingsLibraryImplementation, background_init_s3_client  # noqa: F401
     from job_library import DeadlineCloudJobBundleLibraryImplementation  # noqa: F401
     from open_job_template_api import (  # noqa: F401
         PythonYamlLibraryImplementation,
         ParametersConsistencyCheckerImplementation,
     )
     import remote_executor  # noqa: F401
+
+    background_init_s3_client()
 
     logger.info("DEADLINE CLOUD INITIALIZED")
 
