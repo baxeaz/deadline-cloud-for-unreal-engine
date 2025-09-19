@@ -6,7 +6,6 @@ import sys
 import unreal
 from pathlib import Path
 from typing import Optional, Tuple
-from botocore.client import BaseClient
 
 
 def get_ue_path(in_path: str) -> Optional[str]:
@@ -81,6 +80,7 @@ def sync_mrq_dependencies(dependencies_descriptor_path: str) -> None:
 def background_init_s3_client():
     import threading
     from deadline.client.api import precache_clients
+    from botocore.client import BaseClient
 
     deadline = api.get_boto3_client("deadline")
 
