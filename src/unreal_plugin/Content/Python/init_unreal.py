@@ -6,8 +6,7 @@ import sys
 import unreal
 from pathlib import Path
 from typing import Optional, Tuple
-from botocore.client import BaseClient
-
+from .settings import background_init_s3_client
 
 def get_ue_path(in_path: str) -> Optional[str]:
     """
@@ -77,24 +76,6 @@ def sync_mrq_dependencies(dependencies_descriptor_path: str) -> None:
     asset_registry.scan_modified_asset_files(ue_paths)
     asset_registry.scan_paths_synchronous(ue_paths, True, True)
 
-
-def background_init_s3_client():
-    import threading
-    from deadline.client.api import precache_clients
-
-    deadline = api.get_boto3_client("deadline")
-    result_container: dict[str, Tuple[BaseClient, BaseClient]] = {}
-
-    def init_s3_client():
-        logger.info("INITIALIZING S3 CLIENT")
-        result = precache_clients(deadline=deadline)
-        result_container["result"] = result
-        logger.info("DONE INITIALIZING S3 CLIENT")
-
-    thread = threading.Thread(target=init_s3_client, daemon=True, name="S3ClientInit")
-    thread.start()
-    thread.result_container = result_container  # type: ignore[attr-defined]
-    return thread
 
 
 remote_execution = os.getenv("REMOTE_EXECUTION", "False")
