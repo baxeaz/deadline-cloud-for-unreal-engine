@@ -3,6 +3,7 @@
 import sys
 import pytest
 from unittest.mock import patch, Mock, MagicMock
+
 from openjd.model.v2023_09 import StepTemplate
 from deadline.client.job_bundle.submission import AssetReferences
 
@@ -11,6 +12,11 @@ from test.deadline_submitter_for_unreal.fixtures import f_step_template_default
 
 unreal_mock = MagicMock()
 sys.modules["unreal"] = unreal_mock
+
+from deadline.unreal_submitter.unreal_open_job.unreal_open_job import (  # noqa: E402
+    UnrealOpenJob,
+    UnrealOpenJobParameterDefinition,
+)
 
 from deadline.unreal_submitter.unreal_open_job.unreal_open_job_step import (  # noqa: E402
     UnrealOpenJobStep,
@@ -245,14 +251,13 @@ class TestRenderUnrealOpenJobStep:
         mrq_job_mock = MagicMock()
         mrq_job_mock.shot_info = shot_info
 
-        chunk_size_param = UnrealOpenJobStepParameterDefinition(
-            OpenJobStepParameterNames.TASK_CHUNK_SIZE, "INT", [chunk_size]
+        chunk_size_param = UnrealOpenJobParameterDefinition(
+            OpenJobStepParameterNames.TASK_CHUNK_SIZE, "INT", chunk_size
         )
+        job = UnrealOpenJob(file_path="", name="TestJob", extra_parameters=[chunk_size_param])
 
-        render_step = RenderUnrealOpenJobStep(
-            file_path="", extra_parameters=[chunk_size_param], mrq_job=mrq_job_mock
-        )
-
+        render_step = RenderUnrealOpenJobStep(file_path="", mrq_job=mrq_job_mock)
+        render_step.open_job = job
         # WHEN
         ids_count = render_step._get_chunk_ids_count()
 
@@ -268,19 +273,40 @@ class TestRenderUnrealOpenJobStep:
 
         assert str(exception_info.value) == "MRQ Job must be provided"
 
+    def test__get_chunk_ids_count_no_open_job(self):
+        # GIVEN
+        shot_info = []
+        for _ in range(2):
+            shot_info_mock = MagicMock()
+            shot_info_mock.enabled = True
+            shot_info.append(shot_info_mock)
+
+        mrq_job_mock = MagicMock()
+        mrq_job_mock.shot_info = shot_info
+
+        render_step = RenderUnrealOpenJobStep(file_path="", mrq_job=mrq_job_mock)
+
+        with pytest.raises(exceptions.OpenJobIsMissingError) as exception_info:
+            render_step._get_chunk_ids_count()
+
+        assert str(exception_info.value) == "Render Job must be provided"
+
     def test__get_chunk_ids_count_no_chunk_size_param(self):
         # GIVEN
         mrq_job_mock = MagicMock()
         mrq_job_mock.shot_info = []
-        render_step = RenderUnrealOpenJobStep(file_path="", mrq_job=mrq_job_mock)
 
+        job = UnrealOpenJob(file_path="", name="TestJob", extra_parameters=[])
+
+        render_step = RenderUnrealOpenJobStep(file_path="", mrq_job=mrq_job_mock)
+        render_step.open_job = job
         # WHEN
         with pytest.raises(ValueError) as exception_info:
             render_step._get_chunk_ids_count()
 
         # THEN
         assert (
-            f'Render Step\'s parameter "{OpenJobStepParameterNames.TASK_CHUNK_SIZE}" '
+            f'Render Job\'s parameter "{OpenJobStepParameterNames.TASK_CHUNK_SIZE}" '
             f"must be provided" in str(exception_info.value)
         )
 
@@ -406,3 +432,134 @@ class TestRenderUnrealOpenJobStep:
         # THEN
         assert environment_mock.get_asset_references.call_count == 1
         assert expected_asset_references.input_filenames == asset_references.input_filenames
+
+
+class TestRenderUnrealOpenJobStepFrameChunking:
+    """Tests for frame-based chunking functionality in RenderUnrealOpenJobStep."""
+
+    @pytest.mark.parametrize(
+        "chunk_size, custom_start, custom_end, expected_task_count",
+        [
+            (10, 100, 150, 5),  # 50 frames / 10 = 5 tasks
+            (20, 0, 100, 5),    # 100 frames / 20 = 5 tasks
+            (15, 50, 80, 2),    # 30 frames / 15 = 2 tasks
+            (7, 10, 50, 6),     # 40 frames / 7 = 6 tasks (ceil)
+        ],
+    )
+    def test_task_count_with_frame_based_chunking(
+        self, chunk_size, custom_start, custom_end, expected_task_count
+    ):
+        # GIVEN
+        mock_mrq_job = MagicMock()
+        mock_output_settings = MagicMock()
+        mock_output_settings.use_custom_playback_range = True
+        mock_output_settings.custom_start_frame = custom_start
+        mock_output_settings.custom_end_frame = custom_end
+        
+        mock_configuration = MagicMock()
+        mock_configuration.find_setting_by_class.return_value = mock_output_settings
+        mock_mrq_job.get_configuration.return_value = mock_configuration
+        
+        mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.range = [chunk_size]
+        
+        step = RenderUnrealOpenJobStep(
+            name="test_step",
+            mrq_job=mock_mrq_job,
+            enabled_shots=[MagicMock()],  # Single shot for frame-based chunking
+            chunk_size_parameter=mock_chunk_size_param,
+        )
+
+        # WHEN
+        task_count = step.task_count
+
+        # THEN
+        assert task_count == expected_task_count
+
+    def test_task_count_fallback_to_shot_chunking_when_no_custom_range(self):
+        # GIVEN
+        mock_mrq_job = MagicMock()
+        mock_output_settings = MagicMock()
+        mock_output_settings.use_custom_playback_range = False
+        
+        mock_configuration = MagicMock()
+        mock_configuration.find_setting_by_class.return_value = mock_output_settings
+        mock_mrq_job.get_configuration.return_value = mock_configuration
+        
+        mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.range = [5]
+        
+        enabled_shots = [MagicMock() for _ in range(12)]  # 12 shots
+        
+        step = RenderUnrealOpenJobStep(
+            name="test_step",
+            mrq_job=mock_mrq_job,
+            enabled_shots=enabled_shots,
+            chunk_size_parameter=mock_chunk_size_param,
+        )
+
+        # WHEN
+        task_count = step.task_count
+
+        # THEN
+        assert task_count == 3  # ceil(12 shots / 5) = 3 tasks
+
+    def test_task_count_frame_chunking_with_chunk_size_one(self):
+        # GIVEN - chunk_size = 1 should use shot-based chunking even with custom range
+        mock_mrq_job = MagicMock()
+        mock_output_settings = MagicMock()
+        mock_output_settings.use_custom_playback_range = True
+        mock_output_settings.custom_start_frame = 100
+        mock_output_settings.custom_end_frame = 200
+        
+        mock_configuration = MagicMock()
+        mock_configuration.find_setting_by_class.return_value = mock_output_settings
+        mock_mrq_job.get_configuration.return_value = mock_configuration
+        
+        mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.range = [1]
+        
+        enabled_shots = [MagicMock() for _ in range(5)]
+        
+        step = RenderUnrealOpenJobStep(
+            name="test_step",
+            mrq_job=mock_mrq_job,
+            enabled_shots=enabled_shots,
+            chunk_size_parameter=mock_chunk_size_param,
+        )
+
+        # WHEN
+        task_count = step.task_count
+
+        # THEN
+        assert task_count == 5  # Uses shot count, not frame count
+
+    def test_task_count_with_empty_chunk_size_range(self):
+        # GIVEN - empty range should default to chunk_size = 1
+        mock_mrq_job = MagicMock()
+        mock_output_settings = MagicMock()
+        mock_output_settings.use_custom_playback_range = True
+        mock_output_settings.custom_start_frame = 100
+        mock_output_settings.custom_end_frame = 200
+        
+        mock_configuration = MagicMock()
+        mock_configuration.find_setting_by_class.return_value = mock_output_settings
+        mock_mrq_job.get_configuration.return_value = mock_configuration
+        
+        mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.range = []  # Empty range
+        
+        enabled_shots = [MagicMock() for _ in range(3)]
+        
+        step = RenderUnrealOpenJobStep(
+            name="test_step",
+            mrq_job=mock_mrq_job,
+            enabled_shots=enabled_shots,
+            chunk_size_parameter=mock_chunk_size_param,
+        )
+
+        # WHEN
+        task_count = step.task_count
+
+        # THEN
+        assert task_count == 3  # Uses shot count with default chunk_size = 1

@@ -3,12 +3,13 @@
 import sys
 import unreal
 from typing import Any
-
+import threading
+from botocore.client import BaseClient
 import boto3
 import deadline.client.config as config
 
 from deadline.client import api
-from deadline.client.api import AwsCredentialsSource, AwsAuthenticationStatus
+from deadline.client.api import AwsCredentialsSource, AwsAuthenticationStatus, precache_clients
 from deadline.client.config import config_file
 from deadline.job_attachments.models import FileConflictResolution
 
@@ -50,6 +51,29 @@ def _get_current_os() -> str:
         return "windows"
     return "Unknown"
 
+def background_init_s3_client():
+    """
+    Attempt to precache our s3 client with current deadline queue permissions in a background thread
+    """
+    deadline = api.get_boto3_client("deadline")
+    result_container: dict[str, Tuple[BaseClient, BaseClient]] = {}
+
+    def init_s3_client():
+        logger.info("INITIALIZING S3 CLIENT")
+        result = precache_clients(deadline=deadline)
+        result_container["result"] = result
+        logger.info("DONE INITIALIZING S3 CLIENT")
+
+    thread = threading.Thread(target=init_s3_client, daemon=True, name="S3ClientInit")
+    thread.start()
+    thread.result_container = result_container  # type: ignore[attr-defined]
+    return thread
+
+def on_farm_queue_update():
+    """
+    Perform updates when farm/queue settings are changed
+    """
+    background_init_s3_client()
 
 @unreal.uclass()
 class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLibrary):
@@ -184,6 +208,7 @@ class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLib
             unreal.EditorDialog.show_message(
                 "Deadline Cloud", success_message, unreal.AppMsgType.OK, unreal.AppReturnType.OK
             )
+            on_farm_queue_update()
             return True
 
         return False
@@ -240,15 +265,23 @@ class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLib
             config=config_parser,
         )
 
+        farm_queue_update = False
+
+        farm_id = config.get_setting("defaults.farm_id")
         farm = self.find_entity_by_name(settings.profile.default_farm, cache.farms_cache_list)
         if farm is not None:
             logger.info(f"Update default farm: {farm.id} -- {farm.name}")
             config.set_setting("defaults.farm_id", farm.id, config=config_parser)
+            if farm.id != farm_id:
+                farm_queue_update = True
 
+        queue_id = config.get_setting("defaults.queue_id")
         queue = self.find_entity_by_name(settings.farm.default_queue, cache.queues_cache_list)
         if queue is not None:
             logger.info(f"Update default queue: {queue.id} -- {queue.name}")
             config.set_setting("defaults.queue_id", queue.id, config=config_parser)
+            if queue.id != queue_id:
+                farm_queue_update = True
 
         storage_profile = self.find_entity_by_name(
             settings.farm.default_storage_profile, cache.storage_profiles_cache_list
@@ -290,3 +323,6 @@ class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLib
         )
 
         config_file.write_config(config_parser)
+
+        if farm_queue_update:
+            on_farm_queue_update()
