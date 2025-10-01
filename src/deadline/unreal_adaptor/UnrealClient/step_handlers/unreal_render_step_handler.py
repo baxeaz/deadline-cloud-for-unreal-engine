@@ -335,14 +335,15 @@ class UnrealRenderStepHandler(BaseStepHandler):
                 job_configuration_path=args.get("job_configuration_path", ""),
             )
 
-        output_settings = subsystem.get_queue().get_jobs()[0].get_configuration().find_or_add_setting_by_class(
-                unreal.MoviePipelineOutputSetting
-            )
+        output_settings = (
+            subsystem.get_queue()
+            .get_jobs()[0]
+            .get_configuration()
+            .find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
+        )
         custom_frame_range = False
         if output_settings.use_custom_playback_range:
-            total_frame_range = (
-                output_settings.custom_end_frame - output_settings.custom_start_frame
-            )
+
             original_custom_start = output_settings.custom_start_frame
             original_custom_end = output_settings.custom_end_frame
             custom_frame_range = True
@@ -354,8 +355,12 @@ class UnrealRenderStepHandler(BaseStepHandler):
                     job_output_settings = job.get_configuration().find_or_add_setting_by_class(
                         unreal.MoviePipelineOutputSetting
                     )
-                    job_output_settings.custom_start_frame = original_custom_start + (chunk_id * chunk_size)
-                    job_output_settings.custom_end_frame = min(output_settings.custom_start_frame + chunk_size, original_custom_end)
+                    job_output_settings.custom_start_frame = original_custom_start + (
+                        chunk_id * chunk_size
+                    )
+                    job_output_settings.custom_end_frame = min(
+                        output_settings.custom_start_frame + chunk_size, original_custom_end
+                    )
                     level_sequence = unreal.EditorAssetLibrary.load_asset(
                         unreal.SystemLibrary.conv_soft_object_reference_to_string(
                             unreal.SystemLibrary.conv_soft_obj_path_to_soft_obj_ref(job.sequence)
@@ -363,7 +368,9 @@ class UnrealRenderStepHandler(BaseStepHandler):
                     )
                     level_sequence.set_playback_start(job_output_settings.custom_start_frame)
                     level_sequence.set_playback_end(job_output_settings.custom_end_frame)
-                    logger.info(f"Rendering custom frame range from {job_output_settings.custom_start_frame} to {job_output_settings.custom_end_frame} with sequence playback start {level_sequence.get_playback_start()} end {level_sequence.get_playback_end()}")
+                    logger.info(
+                        f"Rendering custom frame range from {job_output_settings.custom_start_frame} to {job_output_settings.custom_end_frame} with sequence playback start {level_sequence.get_playback_start()} end {level_sequence.get_playback_end()}"
+                    )
                 else:
                     UnrealRenderStepHandler.enable_shots_by_chunk(
                         render_job=job,

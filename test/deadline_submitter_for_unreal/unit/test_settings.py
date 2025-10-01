@@ -40,7 +40,6 @@ class TestBackgroundInitS3Client:
         assert second_result is not None
 
 
-
 class TestOnFarmQueueUpdate:
     """Test the on_farm_queue_update function"""
 
@@ -52,4 +51,3 @@ class TestOnFarmQueueUpdate:
         on_farm_queue_update()
 
         mock_background_init.assert_called_once()
-

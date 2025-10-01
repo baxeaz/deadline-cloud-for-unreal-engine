@@ -5,7 +5,7 @@ import json
 import sys
 import unreal
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 
 def get_ue_path(in_path: str) -> Optional[str]:
@@ -101,7 +101,6 @@ if remote_execution != "True":
         sys.path.append(os.environ["DEADLINE_CLOUD"])
 
     from deadline.unreal_logger import get_logger
-    from deadline.client import api
 
     logger = get_logger()
 

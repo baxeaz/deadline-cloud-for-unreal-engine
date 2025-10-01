@@ -52,13 +52,6 @@ def _get_current_os() -> str:
     return "Unknown"
 
 
-
-def on_farm_queue_update():
-    """
-    Perform updates when farm/queue settings are changed
-    """
-    background_init_s3_client()
-
 def background_init_s3_client():
     """
     Initialize cache an S3 client based on the current deadline configuration
@@ -231,7 +224,6 @@ class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLib
             unreal.EditorDialog.show_message(
                 "Deadline Cloud", success_message, unreal.AppMsgType.OK, unreal.AppReturnType.OK
             )
-            on_farm_queue_update()
             return True
 
         return False

@@ -160,9 +160,7 @@ class UnrealSubmitter:
         try:
             job_id = create_job_from_job_bundle(
                 job_bundle_dir=job_bundle_path,
-                hashing_progress_callback=lambda hash_metadata: self._hash_progress(
-                    hash_metadata
-                ),
+                hashing_progress_callback=lambda hash_metadata: self._hash_progress(hash_metadata),
                 upload_progress_callback=lambda upload_metadata: self._upload_progress(
                     upload_metadata
                 ),

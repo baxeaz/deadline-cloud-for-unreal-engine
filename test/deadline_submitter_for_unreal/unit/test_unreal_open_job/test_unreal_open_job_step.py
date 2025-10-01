@@ -441,9 +441,9 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         "chunk_size, custom_start, custom_end, expected_task_count",
         [
             (10, 100, 150, 5),  # 50 frames / 10 = 5 tasks
-            (20, 0, 100, 5),    # 100 frames / 20 = 5 tasks
-            (15, 50, 80, 2),    # 30 frames / 15 = 2 tasks
-            (7, 10, 50, 6),     # 40 frames / 7 = 6 tasks (ceil)
+            (20, 0, 100, 5),  # 100 frames / 20 = 5 tasks
+            (15, 50, 80, 2),  # 30 frames / 15 = 2 tasks
+            (7, 10, 50, 6),  # 40 frames / 7 = 6 tasks (ceil)
         ],
     )
     def test_task_count_with_frame_based_chunking(
@@ -455,14 +455,14 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_output_settings.use_custom_playback_range = True
         mock_output_settings.custom_start_frame = custom_start
         mock_output_settings.custom_end_frame = custom_end
-        
+
         mock_configuration = MagicMock()
         mock_configuration.find_setting_by_class.return_value = mock_output_settings
         mock_mrq_job.get_configuration.return_value = mock_configuration
-        
+
         mock_chunk_size_param = MagicMock()
         mock_chunk_size_param.range = [chunk_size]
-        
+
         step = RenderUnrealOpenJobStep(
             name="test_step",
             mrq_job=mock_mrq_job,
@@ -481,16 +481,16 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_mrq_job = MagicMock()
         mock_output_settings = MagicMock()
         mock_output_settings.use_custom_playback_range = False
-        
+
         mock_configuration = MagicMock()
         mock_configuration.find_setting_by_class.return_value = mock_output_settings
         mock_mrq_job.get_configuration.return_value = mock_configuration
-        
+
         mock_chunk_size_param = MagicMock()
         mock_chunk_size_param.range = [5]
-        
+
         enabled_shots = [MagicMock() for _ in range(12)]  # 12 shots
-        
+
         step = RenderUnrealOpenJobStep(
             name="test_step",
             mrq_job=mock_mrq_job,
@@ -511,16 +511,16 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_output_settings.use_custom_playback_range = True
         mock_output_settings.custom_start_frame = 100
         mock_output_settings.custom_end_frame = 200
-        
+
         mock_configuration = MagicMock()
         mock_configuration.find_setting_by_class.return_value = mock_output_settings
         mock_mrq_job.get_configuration.return_value = mock_configuration
-        
+
         mock_chunk_size_param = MagicMock()
         mock_chunk_size_param.range = [1]
-        
+
         enabled_shots = [MagicMock() for _ in range(5)]
-        
+
         step = RenderUnrealOpenJobStep(
             name="test_step",
             mrq_job=mock_mrq_job,
@@ -541,16 +541,16 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_output_settings.use_custom_playback_range = True
         mock_output_settings.custom_start_frame = 100
         mock_output_settings.custom_end_frame = 200
-        
+
         mock_configuration = MagicMock()
         mock_configuration.find_setting_by_class.return_value = mock_output_settings
         mock_mrq_job.get_configuration.return_value = mock_configuration
-        
+
         mock_chunk_size_param = MagicMock()
         mock_chunk_size_param.range = []  # Empty range
-        
+
         enabled_shots = [MagicMock() for _ in range(3)]
-        
+
         step = RenderUnrealOpenJobStep(
             name="test_step",
             mrq_job=mock_mrq_job,

@@ -122,37 +122,44 @@ class TestUnrealRenderStepHandler:
         mock_output_settings = MagicMock()
         mock_job_output_settings = MagicMock()
         mock_level_sequence = MagicMock()
-        
+
         mock_output_settings.use_custom_playback_range = True
         mock_output_settings.custom_start_frame = custom_start
         mock_output_settings.custom_end_frame = custom_end
-        
+
         mock_subsystem.get_queue.return_value = mock_queue
         mock_queue.get_jobs.return_value = [mock_job]
-        mock_job.get_configuration.return_value.find_or_add_setting_by_class.return_value = mock_job_output_settings
-        
+        mock_job.get_configuration.return_value.find_or_add_setting_by_class.return_value = (
+            mock_job_output_settings
+        )
+
         args = {
             "chunk_size": chunk_size,
             "chunk_id": chunk_id,
         }
 
         # WHEN
-        with patch(
-            "deadline.unreal_adaptor.UnrealClient.step_handlers."
-            "unreal_render_step_handler.unreal.MoviePipelineSubsystem.get",
-            return_value=mock_subsystem,
-        ), patch(
-            "deadline.unreal_adaptor.UnrealClient.step_handlers."
-            "unreal_render_step_handler.unreal.MoviePipelineOutputSetting",
-            mock_output_settings,
-        ), patch(
-            "deadline.unreal_adaptor.UnrealClient.step_handlers."
-            "unreal_render_step_handler.unreal.EditorAssetLibrary.load_asset",
-            return_value=mock_level_sequence,
-        ), patch(
-            "deadline.unreal_adaptor.UnrealClient.step_handlers."
-            "unreal_render_step_handler.logger.info"
-        ) as log_mock:
+        with (
+            patch(
+                "deadline.unreal_adaptor.UnrealClient.step_handlers."
+                "unreal_render_step_handler.unreal.MoviePipelineSubsystem.get",
+                return_value=mock_subsystem,
+            ),
+            patch(
+                "deadline.unreal_adaptor.UnrealClient.step_handlers."
+                "unreal_render_step_handler.unreal.MoviePipelineOutputSetting",
+                mock_output_settings,
+            ),
+            patch(
+                "deadline.unreal_adaptor.UnrealClient.step_handlers."
+                "unreal_render_step_handler.unreal.EditorAssetLibrary.load_asset",
+                return_value=mock_level_sequence,
+            ),
+            patch(
+                "deadline.unreal_adaptor.UnrealClient.step_handlers."
+                "unreal_render_step_handler.logger.info"
+            ) as log_mock,
+        ):
             unreal_render_step_handler.start_render(args)
 
             # THEN
@@ -172,28 +179,30 @@ class TestUnrealRenderStepHandler:
         mock_queue = MagicMock()
         mock_job = MagicMock()
         mock_output_settings = MagicMock()
-        
+
         mock_output_settings.use_custom_playback_range = False
         mock_subsystem.get_queue.return_value = mock_queue
         mock_queue.get_jobs.return_value = [mock_job]
-        
+
         args = {
             "chunk_size": 5,
             "chunk_id": 1,
         }
 
         # WHEN
-        with patch(
-            "deadline.unreal_adaptor.UnrealClient.step_handlers."
-            "unreal_render_step_handler.unreal.MoviePipelineSubsystem.get",
-            return_value=mock_subsystem,
-        ), patch(
-            "deadline.unreal_adaptor.UnrealClient.step_handlers."
-            "unreal_render_step_handler.unreal.MoviePipelineOutputSetting",
-            mock_output_settings,
-        ), patch.object(
-            unreal_render_step_handler, "enable_shots_by_chunk"
-        ) as mock_enable_shots:
+        with (
+            patch(
+                "deadline.unreal_adaptor.UnrealClient.step_handlers."
+                "unreal_render_step_handler.unreal.MoviePipelineSubsystem.get",
+                return_value=mock_subsystem,
+            ),
+            patch(
+                "deadline.unreal_adaptor.UnrealClient.step_handlers."
+                "unreal_render_step_handler.unreal.MoviePipelineOutputSetting",
+                mock_output_settings,
+            ),
+            patch.object(unreal_render_step_handler, "enable_shots_by_chunk") as mock_enable_shots,
+        ):
             unreal_render_step_handler.start_render(args)
 
             # THEN
