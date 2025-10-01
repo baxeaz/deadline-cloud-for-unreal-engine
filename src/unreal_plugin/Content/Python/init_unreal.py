@@ -112,7 +112,11 @@ if remote_execution != "True":
     # These unused imports are REQUIRED!!!
     # Unreal Engine loads any init_unreal.py it finds in its search paths.
     # These imports finish the setup for the plugin.
-    from settings import DeadlineCloudSettingsLibraryImplementation, background_init_s3_client  # noqa: F401
+    from settings import (
+        DeadlineCloudSettingsLibraryImplementation,  # noqa: F401
+        background_init_s3_client,
+    )
+
     from job_library import DeadlineCloudJobBundleLibraryImplementation  # noqa: F401
     from open_job_template_api import (  # noqa: F401
         PythonYamlLibraryImplementation,
@@ -120,7 +124,10 @@ if remote_execution != "True":
     )
     import remote_executor  # noqa: F401
 
-    background_init_s3_client()
+    try:
+        background_init_s3_client()
+    except Exception as e:
+        logger.error(f"Failed to run background_init_s3_client: {e}")
 
     logger.info("DEADLINE CLOUD INITIALIZED")
 

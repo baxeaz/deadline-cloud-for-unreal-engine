@@ -2,7 +2,7 @@
 
 import sys
 import unreal
-from typing import Any
+from typing import Any, Tuple
 import threading
 from botocore.client import BaseClient
 import boto3
@@ -51,29 +51,50 @@ def _get_current_os() -> str:
         return "windows"
     return "Unknown"
 
-def background_init_s3_client():
-    """
-    Attempt to precache our s3 client with current deadline queue permissions in a background thread
-    """
-    deadline = api.get_boto3_client("deadline")
-    result_container: dict[str, Tuple[BaseClient, BaseClient]] = {}
 
-    def init_s3_client():
-        logger.info("INITIALIZING S3 CLIENT")
-        result = precache_clients(deadline=deadline)
-        result_container["result"] = result
-        logger.info("DONE INITIALIZING S3 CLIENT")
-
-    thread = threading.Thread(target=init_s3_client, daemon=True, name="S3ClientInit")
-    thread.start()
-    thread.result_container = result_container  # type: ignore[attr-defined]
-    return thread
 
 def on_farm_queue_update():
     """
     Perform updates when farm/queue settings are changed
     """
     background_init_s3_client()
+
+def background_init_s3_client():
+    """
+    Initialize cache an S3 client based on the current deadline configuration
+    within the deadline cloud library
+    """
+    logger.info("INIT DEADLINE CLOUD")
+    try:
+        deadline = api.get_boto3_client("deadline")
+        logger.info("Got deadline client successfully")
+    except Exception as e:
+        logger.error(f"Failed to get deadline client: {e}")
+        return None
+
+    result_container: dict[str, Tuple[BaseClient, BaseClient]] = {}
+
+    def init_s3_client():
+        try:
+            logger.info("INITIALIZING S3 CLIENT")
+            result = precache_clients(deadline=deadline)
+            result_container["result"] = result
+            logger.info("DONE INITIALIZING S3 CLIENT")
+        except Exception as e:
+            logger.error(f"Failed to initialize S3 client: {e}")
+
+    thread = threading.Thread(target=init_s3_client, daemon=True, name="S3ClientInit")
+    thread.start()
+    thread.result_container = result_container  # type: ignore[attr-defined]
+    return thread
+
+
+def on_farm_queue_update():
+    """
+    Perform updates based on a change in farm or queue
+    """
+    background_init_s3_client()
+
 
 @unreal.uclass()
 class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLibrary):
@@ -205,6 +226,8 @@ class DeadlineCloudSettingsLibraryImplementation(unreal.DeadlineCloudSettingsLib
             config=None,
         )
         if success_message:
+            on_farm_queue_update()
+
             unreal.EditorDialog.show_message(
                 "Deadline Cloud", success_message, unreal.AppMsgType.OK, unreal.AppReturnType.OK
             )
