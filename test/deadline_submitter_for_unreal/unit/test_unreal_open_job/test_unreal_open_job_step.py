@@ -461,14 +461,13 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_mrq_job.get_configuration.return_value = mock_configuration
 
         mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.name = OpenJobStepParameterNames.TASK_CHUNK_SIZE
         mock_chunk_size_param.range = [chunk_size]
-
-        step = RenderUnrealOpenJobStep(
-            name="test_step",
-            mrq_job=mock_mrq_job,
-            enabled_shots=[MagicMock()],  # Single shot for frame-based chunking
-            chunk_size_parameter=mock_chunk_size_param,
-        )
+        mock_mrq_job.shot_info = [MagicMock(enabled=True)]  # Single enabled shot
+        
+        job = UnrealOpenJob(file_path="", name="TestJob", extra_parameters=[mock_chunk_size_param])
+        step = RenderUnrealOpenJobStep(name="test_step", mrq_job=mock_mrq_job)
+        step.open_job = job
 
         # WHEN
         task_count = step.task_count
@@ -487,16 +486,13 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_mrq_job.get_configuration.return_value = mock_configuration
 
         mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.name = OpenJobStepParameterNames.TASK_CHUNK_SIZE
         mock_chunk_size_param.range = [5]
-
-        enabled_shots = [MagicMock() for _ in range(12)]  # 12 shots
-
-        step = RenderUnrealOpenJobStep(
-            name="test_step",
-            mrq_job=mock_mrq_job,
-            enabled_shots=enabled_shots,
-            chunk_size_parameter=mock_chunk_size_param,
-        )
+        mock_mrq_job.shot_info = [MagicMock(enabled=True) for _ in range(12)]  # 12 enabled shots
+        
+        job = UnrealOpenJob(file_path="", name="TestJob", extra_parameters=[mock_chunk_size_param])
+        step = RenderUnrealOpenJobStep(name="test_step", mrq_job=mock_mrq_job)
+        step.open_job = job
 
         # WHEN
         task_count = step.task_count
@@ -517,16 +513,13 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_mrq_job.get_configuration.return_value = mock_configuration
 
         mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.name = OpenJobStepParameterNames.TASK_CHUNK_SIZE
         mock_chunk_size_param.range = [1]
-
-        enabled_shots = [MagicMock() for _ in range(5)]
-
-        step = RenderUnrealOpenJobStep(
-            name="test_step",
-            mrq_job=mock_mrq_job,
-            enabled_shots=enabled_shots,
-            chunk_size_parameter=mock_chunk_size_param,
-        )
+        mock_mrq_job.shot_info = [MagicMock(enabled=True) for _ in range(5)]  # 5 enabled shots
+        
+        job = UnrealOpenJob(file_path="", name="TestJob", extra_parameters=[mock_chunk_size_param])
+        step = RenderUnrealOpenJobStep(name="test_step", mrq_job=mock_mrq_job)
+        step.open_job = job
 
         # WHEN
         task_count = step.task_count
@@ -547,16 +540,13 @@ class TestRenderUnrealOpenJobStepFrameChunking:
         mock_mrq_job.get_configuration.return_value = mock_configuration
 
         mock_chunk_size_param = MagicMock()
+        mock_chunk_size_param.name = OpenJobStepParameterNames.TASK_CHUNK_SIZE
         mock_chunk_size_param.range = []  # Empty range
-
-        enabled_shots = [MagicMock() for _ in range(3)]
-
-        step = RenderUnrealOpenJobStep(
-            name="test_step",
-            mrq_job=mock_mrq_job,
-            enabled_shots=enabled_shots,
-            chunk_size_parameter=mock_chunk_size_param,
-        )
+        mock_mrq_job.shot_info = [MagicMock(enabled=True) for _ in range(3)]  # 3 enabled shots
+        
+        job = UnrealOpenJob(file_path="", name="TestJob", extra_parameters=[mock_chunk_size_param])
+        step = RenderUnrealOpenJobStep(name="test_step", mrq_job=mock_mrq_job)
+        step.open_job = job
 
         # WHEN
         task_count = step.task_count
