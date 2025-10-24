@@ -1,3 +1,71 @@
+## 0.6.4 (2025-10-08)
+
+
+
+
+## 0.6.3 (2025-09-30)
+
+
+
+### Bug Fixes
+* skip a test that passes in GitHub but fail in CodeBuild (#213) ([`7721f28`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/7721f289c2f28e0626927ab9033de2ffb632c0a0))
+
+## 0.6.2 (2025-09-30)
+
+
+### Features
+* Update Perforce utils to sync dependent files (#207) ([`4a60a67`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/4a60a67566723bef9d8aa982947ac12d7237312b))
+* Update Perforce utils to sync dependent files ([`4a60a67`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/4a60a67566723bef9d8aa982947ac12d7237312b))
+* UI Simplification ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+* UI Simplification ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+* Visibility handling updates ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+
+### Bug Fixes
+* Logging configuration issue (#210) ([`53ba947`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/53ba9477472fb65ec88e9fc207a19ad6d7ea7b6b))
+* fixed log config. Added troubleshooting guide for misconfigured MRQ. Also added more logs ([`53ba947`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/53ba9477472fb65ec88e9fc207a19ad6d7ea7b6b))
+* Caching and using our deadline client for precache_clients method due to potential race condition with underlying clients cached with lru_cache (#205) ([`1f177db`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/1f177db20b08f143e7dd10df98bbdc9d9fa47ea2))
+* Fix the problem where p4 utils is unable to log stuff ([`4a60a67`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/4a60a67566723bef9d8aa982947ac12d7237312b))
+* chunk_size parameter in runData section (#204) ([`4d79a2d`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/4d79a2d9dc4a9995c3f5695ff9cf7b069b9826c1))
+* resolve formatting issues ([`bb89146`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/bb89146549edc5ae420b84bddceed2778b109d9c))
+* sonarqube issues fix ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+* Add job ref to step in UnrealOpenJob.from_data_asset ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+* remove code duplication ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+* remove unused code ([`ca11214`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/ca1121433f8da36d1b32bfec3db937c636dddc19))
+* Autodetect Project Plugins (#180) ([`86cb4a6`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/86cb4a60059058217b6750cf722756857fc4889c))
+* Autodetect Project Plugins ([`86cb4a6`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/86cb4a60059058217b6750cf722756857fc4889c))
+
+## 0.6.1 (2025-08-01)
+
+
+### Features
+* Using precache_clients in background thread for faster initial job submission (#178) ([`49870d2`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/49870d2af6dbbeac8f5cb9627db042cccdf93373))
+* MRQ Job validation error message fixes (#161) ([`b26a928`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/b26a928dd8b1f6cbdc75187b4eb9b6541ba91c92))
+
+### Bug Fixes
+* Switching to use openjd_redacted_env for potentially sensitive environment variables. (#181) ([`586ca74`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/586ca74c5c9e5d4048edd29801336a4f9728bd14))
+* Support ExtraCmdArgs several inputs (#177) ([`26548a5`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/26548a5ecc0f45913c3cf0ea4785f3602abd53b4))
+* Error message in field: Contains empty elements or more than 50 of them with UE 5.5.4 (#154) (#176) ([`d2eee55`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/d2eee55fea9394c1a0857d52653d71868fddb8be))
+* Parameters definitions are empty in MRQ UI when you first time create the job. But if you reset the data asset, then they appear (#175) ([`afd180c`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/afd180cb90c97fe52f56667cd8b1f2d031b44cc7))
+* Resolve deprecation warnings (#174) ([`9a514bf`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/9a514bf4d5a24e0656c539ff0446851b86dd26b9))
+
+## 0.6.0 (2025-07-16)
+
+
+### Features
+* Update render_job template to include Conda variables for SMF and update related docs (#164) ([`8c73fb1`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/8c73fb144aff7ed40ae64ca54773f999b8ed7670))
+* persistent UI settings (#160) ([`f6a6530`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/f6a65301953e432824b02fd361fac4e583f7844e))
+* Input validation (#145) ([`54747db`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/54747db678b9e27a117f9e6e8df20b78c8995edf))
+* Developer Settings refactor (#142) ([`66996e6`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/66996e6f990ef8959956163fa0570d2df7d412a3))
+* Developer Settings fix. Linters compliance ([`66996e6`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/66996e6f990ef8959956163fa0570d2df7d412a3))
+* P4 Sync improvements (#144) ([`2e9800b`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/2e9800baf9702ddc081df7b474de546189ccb64d))
+* P4 sync improvements ([`2e9800b`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/2e9800baf9702ddc081df7b474de546189ccb64d))
+* P4 sync improvements. List only unique dependencies ([`2e9800b`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/2e9800baf9702ddc081df7b474de546189ccb64d))
+* Support MPQ asset as render argument (#143) ([`f66391a`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/f66391a9a72488f5d9f8ac15e44b8533caf3546e))
+
+### Bug Fixes
+* Pinning model dependency to 0.8.x to prevent minor model updates from breaking us unexpectedly (#162) ([`7a2f824`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/7a2f824d5c10ce3405440944d9ca8c3ec960b887))
+* Using parse_model to instantiate classes using default context ([`66497e1`](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/commit/66497e128fd1df79cf3ef0fd00ce835908aa052e))
+
 ## 0.5.0 (2025-03-17)
 
 

@@ -5,16 +5,19 @@ import re
 import sys
 import json
 import unreal
+
 from enum import IntEnum
 from typing import Any, Optional
 from collections import OrderedDict
 from dataclasses import dataclass, asdict
-
-from openjd.model.v2023_09 import JobTemplate
+from pathlib import Path
+import glob
+from openjd.model import parse_model
+from openjd.model.v2023_09 import JobTemplate, ExtensionName
 
 from deadline.client.job_bundle.submission import AssetReferences
 from deadline.client.job_bundle import deadline_yaml_dump, create_job_history_bundle_dir
-
+from deadline.unreal_cmd_utils import merge_cmd_args_with_priority
 from deadline.unreal_submitter import common, exceptions, settings
 from deadline.unreal_submitter.unreal_dependency_collector import (
     DependencyCollector,
@@ -49,7 +52,6 @@ from deadline.unreal_submitter.unreal_open_job.unreal_open_job_step_host_require
 
 from deadline.unreal_logger import get_logger
 from deadline.unreal_perforce_utils import perforce, unreal_source_control
-
 
 logger = get_logger()
 
@@ -138,8 +140,8 @@ class UnrealOpenJob(UnrealOpenJobEntity):
         steps: Optional[list[UnrealOpenJobStep]] = None,
         environments: Optional[list[UnrealOpenJobEnvironment]] = None,
         extra_parameters: Optional[list[UnrealOpenJobParameterDefinition]] = None,
-        job_shared_settings: JobSharedSettings = JobSharedSettings(),
-        asset_references: AssetReferences = AssetReferences(),
+        job_shared_settings: Optional[JobSharedSettings] = None,
+        asset_references: Optional[AssetReferences] = None,
     ):
         """
         :param file_path: Path to the open job template file
@@ -171,8 +173,8 @@ class UnrealOpenJob(UnrealOpenJobEntity):
 
         self._steps: list[UnrealOpenJobStep] = steps or []
         self._environments: list[UnrealOpenJobEnvironment] = environments or []
-        self._job_shared_settings = job_shared_settings
-        self._asset_references = asset_references
+        self._job_shared_settings = job_shared_settings or JobSharedSettings()
+        self._asset_references = asset_references or AssetReferences()
 
         self._transfer_files_strategy = TransferProjectFilesStrategy.S3
 
@@ -202,11 +204,11 @@ class UnrealOpenJob(UnrealOpenJobEntity):
             data_asset.job_preset_struct.host_requirements
         )
         for step in steps:
-            step.host_requirements = host_requirements
+            if host_requirements is not None:
+                step.host_requirements = host_requirements
 
         shared_settings = data_asset.job_preset_struct.job_shared_settings
-
-        return cls(
+        result_job = cls(
             file_path=data_asset.path_to_template.file_path,
             name=None if shared_settings.name in ["", "Untitled"] else shared_settings.name,
             steps=steps,
@@ -221,6 +223,11 @@ class UnrealOpenJob(UnrealOpenJobEntity):
                 shared_settings
             ),
         )
+
+        for step in result_job._steps:
+            step.open_job = result_job
+
+        return result_job
 
     @staticmethod
     def serialize_template(template: Template) -> dict[str, Any]:
@@ -238,6 +245,7 @@ class UnrealOpenJob(UnrealOpenJobEntity):
         template_json = json.loads(template.json(exclude_none=True))
         ordered_keys = [
             "specificationVersion",
+            "extensions",
             "name",
             "parameterDefinitions",
             "jobEnvironments",
@@ -364,17 +372,29 @@ class UnrealOpenJob(UnrealOpenJobEntity):
         :rtype: JobTemplate
         """
 
-        job_template = self.template_class(
-            specificationVersion=settings.JOB_TEMPLATE_VERSION,
-            name=self.name,
-            parameterDefinitions=[
+        template_dict = {
+            "specificationVersion": settings.JOB_TEMPLATE_VERSION,
+            "name": self.name,
+            "parameterDefinitions": [
                 PARAMETER_DEFINITION_MAPPING[param["type"]].job_parameter_openjd_class(**param)
                 for param in self.get_template_object()["parameterDefinitions"]
             ],
-            steps=[s.build_template() for s in self._steps],
-            jobEnvironments=(
-                [e.build_template() for e in self._environments] if self._environments else None
-            ),
+            "steps": [s.build_template() for s in self._steps],
+        }
+
+        extension_list = self.get_template_object().get("extensions")
+
+        if extension_list:
+            template_dict["extensions"] = extension_list
+
+        if self._environments:
+            template_dict["jobEnvironments"] = [e.build_template() for e in self._environments]
+
+        # Use all available extension names from the ExtensionName enum
+        supported_extensions = [extension.value for extension in ExtensionName]
+
+        job_template = parse_model(
+            model=self.template_class, obj=template_dict, supported_extensions=supported_extensions
         )
         return job_template
 
@@ -398,6 +418,57 @@ class UnrealOpenJob(UnrealOpenJobEntity):
             asset_references = asset_references.union(environment.get_asset_references())
 
         return asset_references
+
+    @staticmethod
+    def get_plugins(path: str):
+        unreal_plugins: list[dict] = []
+        pattern = os.path.join(path, "**", "*.uplugin")
+
+        for uplugin in glob.iglob(pattern, recursive=True):
+            real_path = Path(uplugin).resolve(strict=True)
+            try:
+                with real_path.open(encoding="utf-8") as f:
+                    plugin_data = json.load(f)
+
+                unreal_plugins.append(
+                    {
+                        "name": real_path.stem,
+                        "enabled_by_default": plugin_data.get("EnabledByDefault", True),
+                        "folder": Path(uplugin).parent.name,
+                    }
+                )
+            except (OSError, json.JSONDecodeError):
+                continue
+
+        return unreal_plugins
+
+    @staticmethod
+    def parse_uproject(path: str) -> dict[str, bool]:
+        with open(path, encoding="utf‑8") as f:
+            data = json.load(f)
+
+        return {e["Name"]: e.get("Enabled", True) for e in data.get("Plugins", [])}
+
+    @staticmethod
+    def get_plugins_references() -> AssetReferences:
+        project_path = unreal.Paths.get_project_file_path()
+        project_plugins_info = UnrealOpenJob.parse_uproject(project_path)
+
+        result = AssetReferences()
+        plugins_dir = unreal.Paths.project_plugins_dir()
+        plugins_dir_full = unreal.Paths.convert_relative_path_to_full(plugins_dir)
+        plugins = UnrealOpenJob.get_plugins(plugins_dir_full)
+
+        for plugin in plugins:
+            if plugin["name"] == "UnrealDeadlineCloudService":
+                continue
+
+            is_enable = project_plugins_info.get(plugin["name"], plugin["enabled_by_default"])
+
+            if is_enable:
+                result.input_directories.add(os.path.join(plugins_dir_full, plugin["folder"]))
+
+        return result
 
     def create_job_bundle(self):
         """
@@ -455,8 +526,8 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         steps: Optional[list[UnrealOpenJobStep]] = None,
         environments: Optional[list[UnrealOpenJobEnvironment]] = None,
         extra_parameters: Optional[list[UnrealOpenJobParameterDefinition]] = None,
-        job_shared_settings: JobSharedSettings = JobSharedSettings(),
-        asset_references: AssetReferences = AssetReferences(),
+        job_shared_settings: Optional[JobSharedSettings] = None,
+        asset_references: Optional[AssetReferences] = None,
         mrq_job: Optional[unreal.MoviePipelineExecutorJob] = None,
     ):
         """
@@ -545,24 +616,38 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         self._update_steps_settings_from_mrq_job(self._mrq_job)
         self._update_environments_settings_from_mrq_job(self._mrq_job)
 
-        if self._mrq_job.parameter_definition_overrides.parameters:
+        if (
+            self._mrq_job is not None
+            and self._mrq_job.job_template_overrides is not None
+            and self._mrq_job.job_template_overrides.parameters
+        ):
             self._extra_parameters = [
                 UnrealOpenJobParameterDefinition.from_unreal_param_definition(p)
-                for p in self._mrq_job.parameter_definition_overrides.parameters
+                for p in self._mrq_job.job_template_overrides.parameters
             ]
 
-        self.job_shared_settings = JobSharedSettings.from_u_deadline_cloud_job_shared_settings(
-            self._mrq_job.preset_overrides.job_shared_settings
-        )
+        if (
+            self._mrq_job is not None
+            and self._mrq_job.preset_overrides is not None
+            and self._mrq_job.preset_overrides.job_shared_settings is not None
+        ):
+            self.job_shared_settings = JobSharedSettings.from_u_deadline_cloud_job_shared_settings(
+                self._mrq_job.preset_overrides.job_shared_settings
+            )
 
         # Job name set order:
         #   0. Job preset override (high priority)
         #   1. Get from data asset job preset struct
         #   2. Get from YAML template
         #   4. Get from mrq job name (shot name)
-        preset_override_name = self._mrq_job.preset_overrides.job_shared_settings.name
-        if preset_override_name not in ["", "Untitled"]:
-            self._name = preset_override_name
+        if (
+            self._mrq_job is not None
+            and self._mrq_job.preset_overrides is not None
+            and self._mrq_job.preset_overrides.job_shared_settings is not None
+        ):
+            preset_override_name = self._mrq_job.preset_overrides.job_shared_settings.name
+            if preset_override_name not in ["", "Untitled"]:
+                self._name = preset_override_name
 
         if self._name is None:
             self._name = self._mrq_job.job_name
@@ -594,7 +679,8 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         for source_step in data_asset.steps:
             job_step_cls = cls.job_step_map.get(type(source_step), UnrealOpenJobStep)
             job_step = job_step_cls.from_data_asset(source_step)
-            job_step.host_requirements = host_requirements
+            if host_requirements is not None:
+                job_step.host_requirements = host_requirements
             steps.append(job_step)
 
         environments = []
@@ -607,7 +693,7 @@ class RenderUnrealOpenJob(UnrealOpenJob):
 
         shared_settings = data_asset.job_preset_struct.job_shared_settings
 
-        return cls(
+        result_job = cls(
             file_path=data_asset.path_to_template.file_path,
             name=None if shared_settings.name in ["", "Untitled"] else shared_settings.name,
             steps=steps,
@@ -620,6 +706,11 @@ class RenderUnrealOpenJob(UnrealOpenJob):
                 shared_settings
             ),
         )
+
+        for step in result_job._steps:
+            step.open_job = result_job
+
+        return result_job
 
     @classmethod
     def from_mrq_job(
@@ -691,7 +782,8 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         )
         for step in self._steps:
             # update host requirements
-            step.host_requirements = host_requirements
+            if host_requirements is not None:
+                step.host_requirements = host_requirements
 
             # set mrq job to render step
             if isinstance(step, RenderUnrealOpenJobStep):
@@ -699,7 +791,11 @@ class RenderUnrealOpenJob(UnrealOpenJob):
 
             # find appropriate step override
             step_override = next(
-                (override for override in mrq_job.steps_overrides if override.name == step.name),
+                (
+                    override
+                    for override in mrq_job.job_template_overrides.steps_overrides
+                    if override.name == step.name
+                ),
                 None,
             )
             if not step_override:
@@ -744,7 +840,7 @@ class RenderUnrealOpenJob(UnrealOpenJob):
             override_environment = next(
                 (
                     env_override
-                    for env_override in mrq_job.environments_overrides
+                    for env_override in mrq_job.job_template_overrides.environments_overrides
                     if env_override.name == env.name
                 ),
                 None,
@@ -873,10 +969,11 @@ class RenderUnrealOpenJob(UnrealOpenJob):
             client=conn_settings["workspace"],
         )
 
+        latest_changelist_number = str(p4.get_latest_changelist_number() or "latest")
         parameter_values = RenderUnrealOpenJob.update_job_parameter_values(
             job_parameter_values=parameter_values,
             job_parameter_name=OpenJobParameterNames.PERFORCE_CHANGELIST_NUMBER,
-            job_parameter_value=str(p4.get_latest_changelist_number() or "latest"),
+            job_parameter_value=latest_changelist_number,
         )
 
         parameter_values = RenderUnrealOpenJob.update_job_parameter_values(
@@ -918,7 +1015,11 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         # Render node. So we can't sync them and their dependencies until we don't know their paths
         job_dependencies_descriptor = common.create_deadline_cloud_temp_file(
             file_prefix=OpenJobParameterNames.UNREAL_MRQ_JOB_DEPENDENCIES_DESCRIPTOR,
-            file_data={"job_dependencies": self._get_mrq_job_dependency_depot_paths()},
+            file_data={
+                "job_dependencies": self._get_mrq_job_dependency_depot_paths(
+                    latest_changelist_number,
+                )
+            },
             file_ext=".json",
         )
         parameter_values = RenderUnrealOpenJob.update_job_parameter_values(
@@ -963,7 +1064,9 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         unfilled_parameter_values = [
             p
             for p in parameter_values
-            if p["value"] is None or p["name"] == OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS
+            if p["value"] is None
+            or p["name"] == OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS
+            or p["name"] == OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS_FILE
         ]
         filled_parameter_values = [
             p for p in parameter_values if p not in unfilled_parameter_values
@@ -972,19 +1075,37 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         # Unreal Engine can handle long CMD args strings and OpenJD has a limit of 1024 chars.
         # Therefore, we need to write them to file and set ExtraCmdArgs parameter as empty string.
         # Unreal Adaptor uses only ExtraCmdArgsFile parameter to read args from file.
-        cmd_args_str = " ".join(self._get_ue_cmd_args())
+        extra_cmd_args_file_value = None
+        for p in parameter_values:
+            if p["name"] == OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS_FILE:
+                extra_cmd_args_file_value = p["value"]
+                break
+
+        # Read EXTRA_CMD_ARGS_FILE file value if file exists, and append its content to user_extra_cmd_args
+        args_from_file = None
+        if extra_cmd_args_file_value:
+            args_from_file = self.get_user_extra_cmd_args_from_file(str(extra_cmd_args_file_value))
+        user_extra_cmd_args = self.get_user_extra_cmd_args()
+
+        if args_from_file:
+            user_extra_cmd_args = merge_cmd_args_with_priority(user_extra_cmd_args, args_from_file)
+        executor_cmd_args = self.get_executor_cmd_args()
+
+        merged_cmd_args = merge_cmd_args_with_priority(user_extra_cmd_args, executor_cmd_args)
+        merged_cmd_args = self.clear_cmd_args(merged_cmd_args)
 
         unfilled_parameter_values = RenderUnrealOpenJob.update_job_parameter_values(
             job_parameter_values=unfilled_parameter_values,
             job_parameter_name=OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS,
             job_parameter_value="",
         )
-
+        # Write the .txt file using the original temp file logic
         extra_cmd_args_file = common.create_deadline_cloud_temp_file(
             file_prefix=OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS_FILE,
-            file_data=cmd_args_str,
+            file_data=merged_cmd_args,
             file_ext=".txt",
         )
+
         unfilled_parameter_values = RenderUnrealOpenJob.update_job_parameter_values(
             job_parameter_values=unfilled_parameter_values,
             job_parameter_name=OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS_FILE,
@@ -1011,44 +1132,80 @@ class RenderUnrealOpenJob(UnrealOpenJob):
         all_parameter_values = filled_parameter_values + unfilled_parameter_values
         return all_parameter_values
 
-    def _get_ue_cmd_args(self) -> list[str]:
-        cmd_args = common.get_in_process_executor_cmd_args()
+    def get_executor_cmd_args(self) -> str:
+        """
+        Returns the cleaned list of command line arguments from the executor settings and MRQ job.
+        """
 
+        cmd_args = common.get_in_process_executor_cmd_args()
         if self._mrq_job:
-            cmd_args.extend(common.get_mrq_job_cmd_args(self.mrq_job))
+            cmd_args.extend(common.get_mrq_job_cmd_args(self._mrq_job))
+
+        return " ".join(a for a in cmd_args)
+
+    def get_user_extra_cmd_args(self) -> str:
+        """
+        Returns the cleaned list of user-specified extra command line arguments (UNREAL_EXTRA_CMD_ARGS),
+        with any -execcmds arguments removed.
+        """
 
         extra_cmd_args_param = self._find_extra_parameter(
             parameter_name=OpenJobParameterNames.UNREAL_EXTRA_CMD_ARGS,
             parameter_type="STRING",
         )
-
-        if extra_cmd_args_param:
+        if extra_cmd_args_param and extra_cmd_args_param.value:
             extra_cmd_args = str(extra_cmd_args_param.value)
-            cleared_extra_cmds_args = re.sub(
-                pattern='(-execcmds="[^"]*")', repl="", string=extra_cmd_args, flags=re.IGNORECASE
-            )
-            cleared_extra_cmds_args = re.sub(
-                pattern="(-execcmds='[^']*')",
-                repl="",
-                string=cleared_extra_cmds_args,
-                flags=re.IGNORECASE,
-            )
+            return extra_cmd_args
+
+        return ""
+
+    @staticmethod
+    def clear_cmd_args(cmd_args: str) -> str:
+        """
+        Cleans the command line arguments by removing any -execcmds arguments.
+        This is useful to ensure that no unintended execution commands are passed.
+
+        :param cmd_args: The command line arguments as a string.
+        :return: Cleaned command line arguments.
+        """
+        cleared_cmd_args = re.sub(
+            pattern='(-execcmds="[^"]*")', repl="", string=cmd_args, flags=re.IGNORECASE
+        )
+        cleared_cmd_args = re.sub(
+            pattern="(-execcmds='[^']*')",
+            repl="",
+            string=cleared_cmd_args,
+            flags=re.IGNORECASE,
+        )
+
+        if cleared_cmd_args != cmd_args:
             logger.warning(
                 "Appearance of custom '-execcmds' argument on the Render node can cause unpredictable "
                 "issues. Argument '-execcmds' of Unreal Open Job's "
                 "Extra Command Line arguments will be ignored."
             )
 
-            if cleared_extra_cmds_args:
-                cmd_args.extend(cleared_extra_cmds_args.split(" "))
+        return cleared_cmd_args
 
-        # remove duplicates
-        cmd_args = list(set(cmd_args))
+    def get_user_extra_cmd_args_from_file(self, file_path: str) -> str:
+        """
+        Reads the given EXTRA_CMD_ARGS_FILE and returns the string as-is (stripped).
+        Returns an empty string if the file is missing or empty. Logs if file is empty or error reading.
+        """
 
-        # remove empty args
-        cmd_args = [a for a in cmd_args if a != ""]
-
-        return cmd_args
+        if not file_path or not os.path.isfile(file_path):
+            logger.info(f"EXTRA_CMD_ARGS_FILE '{file_path}' does not exist or is not specified.")
+            return ""
+        try:
+            with open(file_path, "r", encoding="utf8") as f:
+                extra_data = f.read()
+            if not extra_data.strip():
+                logger.info(f"EXTRA_CMD_ARGS_FILE '{file_path}' is empty.")
+                return ""
+            return extra_data.strip()
+        except Exception as e:
+            logger.error(f"Error reading EXTRA_CMD_ARGS_FILE '{file_path}': {e}")
+            return ""
 
     def _collect_mrq_job_dependencies(self) -> list[str]:
         """
@@ -1076,7 +1233,12 @@ class RenderUnrealOpenJob(UnrealOpenJob):
             level_path, filter_method=DependencyFilters.dependency_in_game_folder
         )
 
-        return level_sequence_dependencies + level_dependencies + [level_sequence_path, level_path]
+        all_dependencies = (
+            level_sequence_dependencies + level_dependencies + [level_sequence_path, level_path]
+        )
+        unique_dependencies = list(set(all_dependencies))
+
+        return unique_dependencies
 
     def _get_mrq_job_dependency_paths(self):
         """
@@ -1097,12 +1259,19 @@ class RenderUnrealOpenJob(UnrealOpenJob):
 
         return os_dependencies
 
-    def _get_mrq_job_dependency_depot_paths(self) -> list[str]:
+    def _get_mrq_job_dependency_depot_paths(
+        self, changelist_number: Optional[str] = None
+    ) -> list[str]:
         """
         Collects the dependencies if Level and LevelSequence of MRQ Job and returns paths
         converted from UE relative (i.e. /Game/...) to Perforce Depot (//MyProject/Mainline/...).
         Using depot file paths allow to sync in any locations other than User's ones.
 
+        If `changelist_number` is provided, append it to the end of each path with
+        "@" prefix, i.e. //MyProject/Mainline/Assets/MyAsset.uasset@12345
+
+        :param changelist_number: Perforce changelist number
+        :type changelist_number: Optional[str]
         :return: List of the dependency depot paths
         :rtype: list[str]
         """
@@ -1116,6 +1285,9 @@ class RenderUnrealOpenJob(UnrealOpenJob):
             client=conn_settings["workspace"],
         )
         depot_dependencies = p4_conn.get_depot_file_paths(local_dependencies)
+
+        if changelist_number and changelist_number != "latest":
+            depot_dependencies = [f"{path}@{changelist_number}" for path in depot_dependencies]
 
         return depot_dependencies
 
@@ -1217,6 +1389,9 @@ class RenderUnrealOpenJob(UnrealOpenJob):
             asset_references.input_directories.update(
                 RenderUnrealOpenJob.get_required_project_directories()
             )
+            plugins = UnrealOpenJob.get_plugins_references()
+            if plugins:
+                asset_references.input_directories.update(plugins.input_directories)
 
         # add attachments from preset overrides
         if self.mrq_job:

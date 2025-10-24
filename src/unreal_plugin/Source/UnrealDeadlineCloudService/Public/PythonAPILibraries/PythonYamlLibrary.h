@@ -24,6 +24,31 @@ enum class EValueType : uint8
     PATH    UMETA(DisplayName = "Path")
 };
 
+UENUM(BlueprintType)
+enum class EValueValidationType : uint8
+{
+	Default,
+	JobName,
+	JobDescription,
+    JobParameterValue,
+	StepParameterValue,
+	EnvParameterValue
+};
+
+UENUM(BlueprintType)
+enum class EUserInterfaceControl : uint8
+{
+	LINE_EDIT,
+	MULTILINE_EDIT,
+	DROPDOWN_LIST,
+	CHECK_BOX,
+	CHOOSE_INPUT_FILE,
+	CHOOSE_OUTPUT_FILE, 
+	CHOOSE_DIRECTORY,
+	SPIN_BOX,
+	HIDDEN
+};
+
 USTRUCT(BlueprintType)
 struct FParameterDefinition
 {
@@ -39,10 +64,14 @@ struct FParameterDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job")
 	FString Value;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job")
+	EUserInterfaceControl UserInterfaceControl;
+
 	FParameterDefinition()
 		: Name("DefaultName"),
 		 Type(EValueType::STRING),
-		 Value("")
+		 Value(""),
+		 UserInterfaceControl(EUserInterfaceControl::LINE_EDIT)
 	{}
 
 
@@ -64,6 +93,7 @@ struct FStepTaskParameterDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Step")
 	TArray <FString> Range;
+
 
 };
 /**/

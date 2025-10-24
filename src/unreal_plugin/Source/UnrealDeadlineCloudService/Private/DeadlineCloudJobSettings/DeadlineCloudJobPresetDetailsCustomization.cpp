@@ -4,11 +4,17 @@
 #include "MovieRenderPipeline/MoviePipelineDeadlineCloudExecutorJob.h"
 #include "DetailWidgetRow.h"
 #include "IDetailChildrenBuilder.h"
+#include "DetailLayoutBuilder.h"
 #include "IDetailGroup.h"
 #include "PropertyCustomizationHelpers.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Misc/EngineVersionComparison.h"
 #include "DeadlineCloudJobSettings/DeadlineCloudDetailsWidgetsHelper.h"
+#include "Framework/MetaData/DriverMetaData.h"
+#include "PropertyEditorModule.h"
+#include "DeadlineCloudJobSettings/DeadlineCloudStepOverrideCustomization.h"
+
+#define LOCTEXT_NAMESPACE "UnrealDeadlineCloudServiceModule"
 
 TSharedRef<IPropertyTypeCustomization> FDeadlineCloudJobPresetDetailsCustomization::MakeInstance()
 {
@@ -76,13 +82,21 @@ void FDeadlineCloudJobPresetDetailsCustomization::CustomizeChildren(TSharedRef<I
 
         IDetailPropertyRow& PropertyRow = GroupToUse->AddPropertyRow(ChildHandle);
 
+        TSharedPtr<SWidget> CustomValueWidget = FDeadlineCloudDetailsWidgetsHelper::TryCreatePropertyWidgetFromMetadata(ChildHandle);
+        if (CustomValueWidget.IsValid())
+        {
+            FString ParameterName = ChildHandle->GetProperty()->GetName();
+            FName Tag = FName("JobPreset." + ParameterName);
+            CustomValueWidget->AddMetadata(FDriverMetaData::Id(Tag));
+        }
+
         if (OuterJob)
         {
-            CustomizeStructChildrenInMovieRenderQueue(PropertyRow, OuterJob);
+            CustomizeStructChildrenInMovieRenderQueue(PropertyRow, OuterJob, CustomValueWidget);
         }
         else
         {
-            CustomizeStructChildrenInAssetDetails(PropertyRow);
+            CustomizeStructChildrenInAssetDetails(PropertyRow, CustomValueWidget);
         }
     }
 
@@ -97,7 +111,7 @@ void FDeadlineCloudJobPresetDetailsCustomization::CustomizeChildren(TSharedRef<I
 }
 
 void FDeadlineCloudJobPresetDetailsCustomization::CustomizeStructChildrenInAssetDetails(
-    IDetailPropertyRow& PropertyRow) const
+    IDetailPropertyRow& PropertyRow, TSharedPtr<SWidget> CustomValueWidget) const
 {
     TSharedPtr<SWidget> NameWidget;
     TSharedPtr<SWidget> ValueWidget;
@@ -117,14 +131,14 @@ void FDeadlineCloudJobPresetDetailsCustomization::CustomizeStructChildrenInAsset
         .MaxDesiredWidth(Row.ValueWidget.MaxWidth)
         .VAlign(VAlign_Center)
         [
-            ValueWidget.ToSharedRef()
+            CustomValueWidget.IsValid() ? CustomValueWidget.ToSharedRef() : ValueWidget.ToSharedRef()
         ];
 }
 
 void FDeadlineCloudJobPresetDetailsCustomization::CustomizeStructChildrenInMovieRenderQueue(
-    IDetailPropertyRow& PropertyRow, UMoviePipelineDeadlineCloudExecutorJob* Job) const
+    IDetailPropertyRow& PropertyRow, UMoviePipelineDeadlineCloudExecutorJob* Job, TSharedPtr<SWidget> CustomValueWidget) const
 {
-    PropertyOverrideHandler->EnableInMovieRenderQueue(PropertyRow);
+    PropertyOverrideHandler->EnableInMovieRenderQueue(PropertyRow, CustomValueWidget);
 }
 
 TSharedRef<IPropertyTypeCustomization> FDeadlineCloudAttachmentDetailsCustomization::MakeInstance()
@@ -150,6 +164,77 @@ void FDeadlineCloudAttachmentDetailsCustomization::CustomizeHeader(
         ];
 }
 
+TSharedRef<SWidget> FDeadlineCloudAttachmentDetailsCustomization::BuildPathsValidationWidget(
+    TSharedRef<IPropertyHandle> PathsHandle)
+{
+    return SNew(SVerticalBox)
+
+        // Empty paths
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(STextBlock)
+                .Text(LOCTEXT("EmptyPathsError", "The list contains empty elements"))
+                .Font(IDetailLayoutBuilder::GetDetailFont())
+                .ColorAndOpacity(FLinearColor(1.0f, 0.756f, 0.027f)) // #FFC107
+                .Visibility_Lambda([PathsHandle, this]() {
+                return GetPathsEmptyWidgetVisibility(PathsHandle);
+                    })
+        ]
+
+    // Too many paths
+    + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(STextBlock)
+                .Text(LOCTEXT("ExceedPathsNumberError", "The list must not contain more than 50 paths"))
+                .Font(IDetailLayoutBuilder::GetDetailFont())
+                .ColorAndOpacity(FLinearColor(1.0f, 0.756f, 0.027f))
+                .Visibility_Lambda([PathsHandle, this]() {
+                return GetPathsNumberExceededWidgetVisibility(PathsHandle);
+                    })
+        ];
+}
+
+void FDeadlineCloudAttachmentDetailsCustomization::CustomizePathsRow(
+    IDetailPropertyRow& Row,
+    TSharedRef<IPropertyHandle> PathsHandle,
+    bool bCheckPaths)
+{
+    TSharedPtr<SWidget> NameWidget;
+    TSharedPtr<SWidget> ValueWidget;
+    Row.GetDefaultWidgets(NameWidget, ValueWidget);
+
+    Row.CustomWidget(true)
+        .NameContent()
+        [
+            NameWidget.ToSharedRef()
+        ]
+        .ValueContent()
+        [
+            SNew(SHorizontalBox)
+                // Only add the validation widget if bCheckPaths is true
+                + SHorizontalBox::Slot()
+                .HAlign(HAlign_Left)
+                .VAlign(VAlign_Center)
+                .Padding(4, 0)
+                [
+                    bCheckPaths ? BuildPathsValidationWidget(PathsHandle) : SNullWidget::NullWidget
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .HAlign(HAlign_Left)
+                .VAlign(VAlign_Center)
+                [
+                    SNew(SOverlay)
+                        + SOverlay::Slot()
+                        [
+                            ValueWidget.ToSharedRef()
+                        ]
+                ]
+        ];
+}
+
 void FDeadlineCloudAttachmentDetailsCustomization::CustomizeChildren(
     TSharedRef<IPropertyHandle> StructHandle, IDetailChildrenBuilder& ChildBuilder,
     IPropertyTypeCustomizationUtils& CustomizationUtils)
@@ -166,7 +251,6 @@ void FDeadlineCloudAttachmentDetailsCustomization::CustomizeChildren(
     UMoviePipelineDeadlineCloudExecutorJob* OuterJob = FPropertyAvailabilityHandler::GetOuterJob(StructHandle);
     PropertyOverrideHandler = MakeShared<FPropertyAvailabilityHandler>(OuterJob);
 
-
     if (OuterJob)
     {
         PropertyOverrideHandler->EnableInMovieRenderQueue(PathsRow);
@@ -182,7 +266,11 @@ void FDeadlineCloudAttachmentDetailsCustomization::CustomizeChildren(
                     }));
     }
     else
+    { 
         PropertyOverrideHandler->DisableRowInDataAsset(AutoDetectedPathsRow);
+    }
+        CustomizePathsRow(PathsRow, PathsHandle.ToSharedRef(), true);
+        CustomizePathsRow(AutoDetectedPathsRow, AutoDetectedPathsHandle.ToSharedRef(), false);
 
     // Since we updating auto-detected files mostly to show them in the UI. We don't want to put it into job initialization methods
     if (OuterJob && StructHandle->GetProperty()->GetName() == "InputFiles")
@@ -191,9 +279,104 @@ void FDeadlineCloudAttachmentDetailsCustomization::CustomizeChildren(
     }
 }
 
+bool FDeadlineCloudAttachmentDetailsCustomization::ExceededPathsNumber(TSharedPtr<IPropertyHandle> PropertyHandle) const
+{
+	if (!PropertyHandle.IsValid())
+	{
+		return false;
+	}
+	auto Paths = PropertyHandle->GetChildHandle("Paths", false);
+	if (!Paths.IsValid())
+	{
+		return false;
+	}
+
+	auto ArrayHandle = Paths->AsArray();
+	if (!ArrayHandle.IsValid())
+	{
+		return false;
+	}
+
+	uint32 NumChildren = 0;
+	ArrayHandle->GetNumElements(NumChildren);
+    if (NumChildren >= 50)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool FDeadlineCloudAttachmentDetailsCustomization::ContainsEmptyPaths(TSharedPtr<IPropertyHandle> PropertyHandle) const
+{
+    if (!PropertyHandle.IsValid())
+    {
+        return false;
+    }
+    auto Paths = PropertyHandle->GetChildHandle("Paths", false);
+    if (!Paths.IsValid())
+    {
+        return false;
+    }
+
+    auto ArrayHandle = Paths->AsArray();
+    if (!ArrayHandle.IsValid())
+    {
+        return false;
+    }
+
+    uint32 NumChildren = 0;
+    ArrayHandle->GetNumElements(NumChildren);
+    if (NumChildren == 0)
+    {
+        return false;
+    }
+    for (uint32 ChildIndex = 0; ChildIndex < NumChildren; ++ChildIndex)
+    {
+        TSharedPtr<IPropertyHandle> ChildHandle = ArrayHandle->GetElement(ChildIndex);
+        if (!ChildHandle.IsValid())
+        {
+            continue;
+        }
+
+        FString Value;
+        auto FilePath = ChildHandle->GetChildHandle("FilePath", false);
+        if (FilePath.IsValid())
+        {
+            FilePath->GetValue(Value);
+        }
+        else
+        {
+            auto Path = ChildHandle->GetChildHandle("Path", false);
+            if (Path.IsValid())
+            {
+                Path->GetValue(Value);
+            }
+        }
+
+        if (Value.IsEmpty())
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+EVisibility FDeadlineCloudAttachmentDetailsCustomization::GetPathsNumberExceededWidgetVisibility(TSharedPtr<IPropertyHandle> PropertyHandle) const
+{
+    return ExceededPathsNumber(PropertyHandle) ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility FDeadlineCloudAttachmentDetailsCustomization::GetPathsEmptyWidgetVisibility(TSharedPtr<IPropertyHandle> PropertyHandle) const
+{
+    return ContainsEmptyPaths(PropertyHandle) ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+
+
 bool FDeadlineCloudJobPresetDetailsCustomization::IsPropertyHiddenInMovieRenderQueue(const FName& InPropertyPath)
 {
-
     return false;
 }
 
@@ -386,7 +569,7 @@ void FPropertyAvailabilityHandler::DisableRowInDataAsset(const IDetailPropertyRo
 }
 
 
-void FPropertyAvailabilityHandler::EnableInMovieRenderQueue(IDetailPropertyRow& PropertyRow) const
+void FPropertyAvailabilityHandler::EnableInMovieRenderQueue(IDetailPropertyRow& PropertyRow, TSharedPtr<SWidget> CustomValueWidget) const
 {
     if (!Job) return;
 
@@ -396,13 +579,19 @@ void FPropertyAvailabilityHandler::EnableInMovieRenderQueue(IDetailPropertyRow& 
     PropertyRow.GetDefaultWidgets(NameWidget, ValueWidget, Row);
 
     const FName PropertyPath = *PropertyRow.GetPropertyHandle()->GetProperty()->GetPathName();
-    ValueWidget->SetEnabled(
-        TAttribute<bool>::CreateLambda([this, PropertyPath]()
-            {
-                return Job->IsPropertyRowEnabledInMovieRenderJob(PropertyPath);
-            }
-        )
-    );
+    TAttribute<bool> IsEnabled = TAttribute<bool>::CreateLambda([this, PropertyPath]()
+        {
+            return Job->IsPropertyRowEnabledInMovieRenderJob(PropertyPath);
+        });
+
+    if (CustomValueWidget.IsValid())
+    {
+        CustomValueWidget->SetEnabled(IsEnabled);
+    }
+	else
+	{
+		ValueWidget->SetEnabled(IsEnabled);
+	}
 
     PropertyRow
         .CustomWidget(true)
@@ -439,6 +628,9 @@ void FPropertyAvailabilityHandler::EnableInMovieRenderQueue(IDetailPropertyRow& 
         .MaxDesiredWidth(Row.ValueWidget.MaxWidth)
         .VAlign(VAlign_Center)
         [
-            ValueWidget.ToSharedRef()
+            CustomValueWidget.IsValid() ? CustomValueWidget.ToSharedRef() : ValueWidget.ToSharedRef()
         ];
 }
+
+
+#undef LOCTEXT_NAMESPACE

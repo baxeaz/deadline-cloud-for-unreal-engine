@@ -23,6 +23,14 @@ hatch build
 hatch run test
 ```
 
+### Run E2E tests
+
+End to end tests validate a more complete render job workflow than our unit tests.  They create associated test resouces and attempt to submit and run jobs locally.
+
+```bash
+hatch run e2e -s
+```
+
 ### Run linting
 
 ```bash
@@ -43,7 +51,7 @@ hatch run all:test
 
 ### Testing C++ Changes
 
-When making C++ changes before testing you'll need to rebuild and copy your modified plugin to your Unreal plugins folder following [these steps](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER_CMF.md#build-the-plugin).
+When making C++ changes before testing you'll need to rebuild and copy your modified plugin to your Unreal plugins folder following [these steps](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER_CMF.md#build-the-plugin) OR run the end to end tests (hatch run e2e -s) which builds and install both the C++ and python code.
 
 
 ### Testing Python Changes
@@ -54,7 +62,7 @@ When making changes to the Python submitter you'll need to rebuild and install y
 // Install hatch if not yet installed
 pip install hatch
 hatch build
-"C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install dist\deadline_cloud_for_unreal_engine-0.2.2.post21-py3-none-any.whl --target "C:\Program Files\Epic Games\UE_5.4\Engine\Plugins\UnrealDeadlineCloudService\Content\Python\libraries"
+"C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\ThirdParty\Python3\Win64\python" -m pip install dist\deadline_cloud_for_unreal_engine-0.2.2.post21-py3-none-any.whl --target "C:\Program Files\Epic Games\UE_5.5\Engine\Plugins\UnrealDeadlineCloudService\Content\Python\libraries"
 ```
 
 When making adaptor changes, the same .whl can either be transferred to your worker or built on the worker off the same changes.
@@ -81,7 +89,7 @@ The Deadline Cloud plugin's Unreal Automation Tests can be run from within Unrea
 To test out any significant changes it's useful to submit a test render following [this guide](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER_CMF.md#submit-a-test-render-optional)
 
 
-### Building the docs
+## Building the docs
 
 1. Install python requirements for building Sphinx documentation
    ```
@@ -106,10 +114,66 @@ To test out any significant changes it's useful to submit a test render followin
 5. Generated documentation will be placed at *docs/build/html* folder.
    You can visit the "Home" page of the docs by opening the **index.html** file
 
+## Troubleshooting
 
+### Credential Configuration Errors
 
+Error: No valid credentials for ### available.
 
+Root Cause: Misconfigured "Run as user" in the queue
 
+Solution: 
+   - **Non-E2E tests**: Configure Windows user credentials following the [Manage access to Windows job user secrets](https://docs.aws.amazon.com/deadline-cloud/latest/developerguide/manage-access-windows-secrets.html) guide
 
+   - **E2E tests**: Set the E2E test queue "Run as user" to "Worker agent user"
 
+### CloudWatch Logs Permission Errors
 
+Error: An error occurred (ResourceNotFoundException) when calling the PutLogEvents operation: The specified log stream does not exist. 
+
+Root Cause: The "Run as user" role lacks proper CloudWatch Logs permissions.
+
+Solution: 
+   -  **Non-E2E tests**: Ensure the "Run as user" role has the following permissions.
+   - **E2E tests**: E2E tests use `BealineTaskExecutionRole` role. Ensure the `BealineTaskExecutionRole` IAM role includes the following permissions.
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/deadline/*"
+    }
+  ]
+}
+```
+
+### Unreal Engine Version Mismatch
+
+Error: The package '/Temp/UnrealDeadlineCloudService/RenderJobManifests/###' was saved with an older version which is not backwards compatible with the current process
+
+Root Cause: Version mismatch between the Unreal Engine version used to submit the job and the version running on the worker node.
+
+Solutions:
+   - Resubmit the job using the Unreal Engine version that matches the worker node. On Service Managed Fleets - Ensure the Conda package version selected matches your project's version of Unreal Engine
+   - Install the correct Unreal Engine version on the worker node and update environment variables to match the job's Unreal Engine version
+
+### Missing Deadline Cloud Job Submission Configuration in Movie Render Queue
+
+Issue: When launching Movie Render Queue, Deadline Cloud job submission configurations are not visible.
+
+Root Cause: Movie Render Pipeline project settings were not properly configured.
+
+Solution: Configure Movie Render Pipeline settings as described in [Submit a Test Render](https://github.com/aws-deadline/deadline-cloud-for-unreal-engine/blob/mainline/SETUP_SUBMITTER.md#submit-a-test-render):
+   - Under "Edit"/"Project Settings" search for the "Movie Render Pipeline" section
+     - For "Default Remote Executor", select "MoviePipelineDeadlineCloudRemoteExecutor"
+     - For "Default Executor Job", select "MoviePipelineDeadlineCloudExecutorJob"
+     - Under "Default Job Settings Classes", click add icon, and add "DeadlineCloudRenderStepSetting"

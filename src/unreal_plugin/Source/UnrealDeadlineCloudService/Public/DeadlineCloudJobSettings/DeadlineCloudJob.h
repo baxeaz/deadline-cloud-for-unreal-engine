@@ -10,6 +10,7 @@
 /**
  * All Deadline Cloud job settings container struct
  */
+
  /**
   * Deadline Cloud Job Shared Settings
   * Goes as part of FDeadlineCloudJobPresetStruct,
@@ -22,11 +23,11 @@ struct UNREALDEADLINECLOUDSERVICE_API FDeadlineCloudJobSharedSettingsStruct
 
 public:
     /** Job Name */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 0))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 0, CustomWidgetType = STRING, ValidationType = JobName))
     FString Name = "Untitled";
 
     /** Job description */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 1))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 1, CustomWidgetType = STRING, ValidationType = JobDescription))
     FString Description = "No description";
 
     /** Job initial state */
@@ -34,15 +35,15 @@ public:
     FString InitialState = "READY";
 
     /** Max number of failed tasks */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 3))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (ClampMin = 0, DisplayPriority = 3))
     int32 MaximumFailedTasksCount = 1;
 
     /** Maximum retries per task */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 4))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (ClampMin = 0, DisplayPriority = 4))
     int32 MaximumRetriesPerTask = 50;
 
     /** Job priority */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (DisplayPriority = 5))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Job Shared Settings", meta = (ClampMin = 0, ClampMax = 100, DisplayPriority = 5))
     int32 Priority = 50;
 };
 
@@ -70,20 +71,20 @@ struct UNREALDEADLINECLOUDSERVICE_API FDeadlineCloudHostRequirementsStruct
 	FString CPU_Architecture;
 
 	/** Required number of CPU cores */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 0, ClampMax = 10000, DisplayName = "vCPUs", EditCondition = "!bRunOnAllWorkerNodes"))
-	FInt32Interval CPUs = FInt32Interval(0, 0);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 1, ClampMax = 10000, DisplayName = "vCPUs", EditCondition = "!bRunOnAllWorkerNodes"))
+	FInt32Interval CPUs = FInt32Interval(1, 1);
 
 	/** Required amount of RAM */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 0, ClampMax = 10000, DisplayName = "Memory (GiB)", EditCondition = "!bRunOnAllWorkerNodes"))
-	FInt32Interval Memory = FInt32Interval(0, 0);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 1, ClampMax = 10000, DisplayName = "Memory (GiB)", EditCondition = "!bRunOnAllWorkerNodes"))
+	FInt32Interval Memory = FInt32Interval(1, 1);
 
 	/** Required numer of GPU */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 0, ClampMax = 10000, DisplayName = "GPUs", EditCondition = "!bRunOnAllWorkerNodes"))
 	FInt32Interval GPUs = FInt32Interval(0, 0);
 
 	/** Required number of VRAM */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 0, ClampMax = 10000, DisplayName = "GPU Memory (GiB)", EditCondition = "!bRunOnAllWorkerNodes"))
-	FInt32Interval GPU_Memory = FInt32Interval(0, 0);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 1, ClampMax = 10000, DisplayName = "GPU Memory (GiB)", EditCondition = "!bRunOnAllWorkerNodes"))
+	FInt32Interval GPU_Memory = FInt32Interval(1, 1);
 
 	/** Required amount of scratch space */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Host requirements", meta = (ClampMin = 0, ClampMax = 10000, DisplayName = "Scratch Space", EditCondition = "!bRunOnAllWorkerNodes"))
@@ -334,6 +335,21 @@ public:
 	};
 	bool AreEmptyHiddenParameters() { return HiddenParametersList.IsEmpty(); };
 	bool ContainsHiddenParameters(FName Parameter) { return HiddenParametersList.Contains(Parameter); };
+	bool IsParameterVisibilityChangedFromDefault(FName Parameter)
+	{
+		bool isHiddenNow = ContainsHiddenParameters(Parameter);
+
+		for (auto& p : ParameterDefinition.Parameters)
+		{
+			if (p.Name == Parameter)
+			{
+				bool IsDefaultHidden = p.UserInterfaceControl == EUserInterfaceControl::HIDDEN;
+				return isHiddenNow != IsDefaultHidden;
+			}
+		}
+
+		return false;
+	}
 	void RemoveHiddenParameters(FName Parameter) {
 		HiddenParametersList.Remove(Parameter);
 		Modify();
@@ -344,16 +360,38 @@ public:
 
 	void ParameterHiddenEvent() {
 		if (OnParameterHidden.IsBound())
-
 		{
 			OnParameterHidden.Execute();
 		}
 	};
-	bool GetDisplayHiddenParameters() { return bDisplayHiddenWidgets; };
-	void SetDisplayHiddenParameters(bool ShowParameters) { bDisplayHiddenWidgets = ShowParameters; };
+
+	bool IsParametersHiddenByDefault() 
+	{ 
+		bool bParametersHiddenChanged = true;
+		for (auto Parameter : ParameterDefinition.Parameters)
+		{
+			if (IsParameterVisibilityChangedFromDefault(FName(Parameter.Name)))
+			{
+				bParametersHiddenChanged = false;
+				break;
+			}
+		}
+		return bParametersHiddenChanged;
+	};
+
+	void ResetParametersHiddenToDefault() 
+	{ 
+        HiddenParametersList.Empty();
+        for (auto Parameter : ParameterDefinition.Parameters)
+        {
+            if (Parameter.UserInterfaceControl == EUserInterfaceControl::HIDDEN)
+            {
+                HiddenParametersList.Add(FName(*Parameter.Name));
+            }
+        }
+	};
 private:
 	UPROPERTY(EditAnywhere, meta = (HideInDetailPanel, Category = "Parameters"))
 	TArray<FName> HiddenParametersList;
-	bool bDisplayHiddenWidgets = false;
 
 };

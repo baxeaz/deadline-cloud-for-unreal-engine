@@ -1,5 +1,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "CoreMinimal.h"
+#include "DeadlineCloudJobSettings/DeadlineCloudDeveloperSettings.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationCommon.h"
@@ -44,7 +45,29 @@ public:
         // Check for Python job creation message
         if (category == TEXT("LogPython") && FCString::Stristr(msg, TEXT("Job creation result: job-")))
         {
-            UE_LOG(LogCreateJobTest, Display, TEXT("Found job creation log message"));
+            // Extract the job ID from the log message
+            FString LogMessage(msg);
+            FString JobId;
+
+            // Find the job ID in the message (format: "Job creation result: job-xxxxxxxx")
+            if (LogMessage.Contains(TEXT("Job creation result: ")))
+            {
+                int32 StartPos = LogMessage.Find(TEXT("Job creation result: ")) + FCString::Strlen(TEXT("Job creation result: "));
+                JobId = LogMessage.Mid(StartPos).TrimEnd();
+
+                // Remove any trailing characters like newlines or quotes
+                JobId = JobId.TrimEnd().TrimQuotes();
+            }
+
+            if (!JobId.IsEmpty())
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Found job creation log message with job ID: %s"), *JobId);
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Found job creation log message but couldn't extract job ID"));
+            }
+
             m_jobCreationFound = true;
         }
 
@@ -118,6 +141,292 @@ private:
     UMoviePipelineQueue* m_originalQueue;
 };
 
+// Settings helper class
+class FSettingsHelper
+{
+public:
+    static FProperty* ResolvePropertyByPath(UObject* RootObject, const FString& PropertyPath)
+    {
+	    if (!RootObject)
+	    {
+		    UE_LOG(LogCreateJobTest, Error, TEXT("RootObject is null"));
+		    return nullptr;
+	    }
+
+	    TArray<FString> PathSegments;
+	    PropertyPath.ParseIntoArray(PathSegments, TEXT("."));
+	    if (PathSegments.Num() == 0)
+	    {
+		    UE_LOG(LogCreateJobTest, Error, TEXT("Property path is empty"));
+		    return nullptr;
+	    }
+
+	    UStruct* CurrentStruct = RootObject->GetClass();
+	    void* CurrentContainer = RootObject;
+
+	    for (int32 i = 0; i < PathSegments.Num(); ++i)
+	    {
+		    const FName SegmentName(*PathSegments[i]);
+		    FProperty* FoundProperty = CurrentStruct->FindPropertyByName(SegmentName);
+		    if (!FoundProperty)
+		    {
+			    UE_LOG(LogCreateJobTest, Error, TEXT("Property '%s' not found in '%s'"), *SegmentName.ToString(), *CurrentStruct->GetName());
+			    return nullptr;
+		    }
+
+		    if (i == PathSegments.Num() - 1)
+		    {
+			    return FoundProperty;
+		    }
+
+		    if (FStructProperty* StructProp = CastField<FStructProperty>(FoundProperty))
+		    {
+			    CurrentContainer = StructProp->ContainerPtrToValuePtr<void>(CurrentContainer);
+			    CurrentStruct = StructProp->Struct;
+		    }
+		    else if (FObjectProperty* ObjectProp = CastField<FObjectProperty>(FoundProperty))
+		    {
+			    UObject* InnerObject = ObjectProp->GetObjectPropertyValue_InContainer(CurrentContainer);
+			    if (!InnerObject)
+			    {
+				    UE_LOG(LogCreateJobTest, Error, TEXT("Nested object '%s' is null"), *SegmentName.ToString());
+				    return nullptr;
+			    }
+			    CurrentContainer = InnerObject;
+			    CurrentStruct = InnerObject->GetClass();
+		    }
+		    else
+		    {
+			    UE_LOG(LogCreateJobTest, Error, TEXT("Unsupported property '%s' (not struct or object)"), *SegmentName.ToString());
+			    return nullptr;
+		    }
+	    }
+
+	    return nullptr;
+    }
+
+    static void ApplyTestSettings()
+    {
+        UE_LOG(LogCreateJobTest, Display, TEXT("Applying test settings"));
+        // Get settings
+        UDeadlineCloudDeveloperSettings* Settings = UDeadlineCloudDeveloperSettings::GetMutable();
+        if (!Settings)
+        {
+            UE_LOG(LogCreateJobTest, Error, TEXT("Failed to get Python implementation of settings"));
+            return;
+        }
+        
+        // Cache original values
+        OriginalFarmId = Settings->WorkStationConfiguration.Profile.DefaultFarm;
+        OriginalQueueId = Settings->WorkStationConfiguration.Farm.DefaultQueue;
+
+        UE_LOG(LogCreateJobTest, Display, TEXT("Updating settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
+        // Parse command line parameters
+        FString ParamsString;
+        if (FParse::Value(FCommandLine::Get(), TEXT("testparams="), ParamsString))
+        {
+            UE_LOG(LogCreateJobTest, Display, TEXT("Got ParamsString: '%s'"), *ParamsString);
+
+            // Debug the full command line
+            UE_LOG(LogCreateJobTest, Display, TEXT("Full command line: '%s'"), FCommandLine::Get());
+
+            // Split using semicolon delimiter
+            TArray<FString> KeyValuePairs;
+            ParamsString.ParseIntoArray(KeyValuePairs, TEXT(";"), true);
+
+            UE_LOG(LogCreateJobTest, Display, TEXT("Split into %d key-value pairs"), KeyValuePairs.Num());
+
+            bool farmChanged = false;
+            bool queueChanged = false;
+
+            for (int32 i = 0; i < KeyValuePairs.Num(); ++i)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Pair %d: '%s'"), i, *KeyValuePairs[i]);
+
+                FString Key, Value;
+                if (KeyValuePairs[i].Split(TEXT("="), &Key, &Value))
+                {
+                    UE_LOG(LogCreateJobTest, Display, TEXT("Split into key='%s', value='%s'"), *Key, *Value);
+
+                    if (Key == TEXT("farm_id") && !Value.IsEmpty())
+                    {
+                        // If the value looks like an ID (starts with "farm-"), try to find the farm by ID
+                        if (!Value.StartsWith(TEXT("farm-")))
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Farm id not properly formatted '%s'"), *Value);
+                            continue;
+                        }
+
+                        // Find farm by ID and use its name
+                        FString FarmName = Value;
+
+                        // In a real implementation, we would look up the farm name from the ID
+                        // For now, we'll just use a placeholder
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Converting farm ID '%s' to name"), *Value);
+
+                        // Look up the farm name from the ID using the Settings object
+                        FString FoundName = Settings->FindFarmById(Value, true).Name;
+                        if (!FoundName.IsEmpty())
+                        {
+                            FarmName = FoundName;
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find farm with ID: '%s'"), *Value);
+                        }
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Found farm name: '%s'"), *FarmName);
+
+                        // Check if the farm value is actually changing
+                        if (Settings->WorkStationConfiguration.Profile.DefaultFarm != FarmName)
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting farm to '%s'"), *FarmName);
+                            Settings->WorkStationConfiguration.Profile.DefaultFarm = FarmName;
+                            farmChanged = true;
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Farm value unchanged (already '%s'), skipping update"), *FarmName);
+                        }
+                    }
+                    else if (Key == TEXT("queue_id") && !Value.IsEmpty())
+                    {
+                        // If the value looks like an ID (starts with "queue-"), try to find the queue by ID
+                        if (!Value.StartsWith(TEXT("queue-")))
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Queue id not properly formatted '%s'"), *Value);
+                            continue;
+                        }
+
+                        // Find queue by ID and use its name
+                        FString QueueName = Value;
+
+                        // In a real implementation, we would look up the queue name from the ID
+                        // For now, we'll just use a placeholder
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Converting queue ID '%s' to name"), *Value);
+
+                        // Look up the queue name from the ID using the Settings object
+                        FString FoundName = Settings->FindQueueById(Value, true).Name;
+                        if (!FoundName.IsEmpty())
+                        {
+                            QueueName = FoundName;
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Warning, TEXT("Could not find queue with ID: '%s'"), *Value);
+                        }
+                        UE_LOG(LogCreateJobTest, Display, TEXT("Found queue name: '%s'"), *QueueName);
+
+
+                        // Check if the queue value is actually changing
+                        if (Settings->WorkStationConfiguration.Farm.DefaultQueue != QueueName)
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Setting queue to '%s'"), *QueueName);
+                            Settings->WorkStationConfiguration.Farm.DefaultQueue = QueueName;
+                            queueChanged = true;
+                        }
+                        else
+                        {
+                            UE_LOG(LogCreateJobTest, Display, TEXT("Queue value unchanged (already '%s'), skipping update"), *QueueName);
+                        }
+                    }
+                }
+                else
+                {
+                    UE_LOG(LogCreateJobTest, Warning, TEXT("Failed to split pair '%s' on '='"), *KeyValuePairs[i]);
+                }
+            }
+
+            // Save the settings
+            Settings->SaveConfig();
+
+            // Trigger the Python implementation's on_settings_modified method with the exact property name it expects
+            if (farmChanged)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultFarm"));
+				FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Profile.DefaultFarm"));
+                FPropertyChangedEvent PropertyEvent(Property);
+                Settings->PostEditChangeProperty(PropertyEvent);
+            }
+
+            if (queueChanged)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Triggering OnSettingsModified for DefaultQueue"));
+				FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Farm.DefaultQueue"));
+                FPropertyChangedEvent PropertyEvent(Property);
+                Settings->PostEditChangeProperty(PropertyEvent);
+            }
+        }
+    }
+
+    static void RestoreOriginalSettings()
+    {
+        // Restore original settings
+        UDeadlineCloudDeveloperSettings* Settings = UDeadlineCloudDeveloperSettings::GetMutable();
+        if (Settings)
+        {
+            UE_LOG(LogCreateJobTest, Display, TEXT("Restoring settings, original farm %s queue %s"), *OriginalFarmId, *OriginalQueueId);
+
+            // Check if the farm value needs to be restored
+            if (Settings->WorkStationConfiguration.Profile.DefaultFarm != OriginalFarmId)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Restoring farm from '%s' to '%s'"),
+                    *Settings->WorkStationConfiguration.Profile.DefaultFarm, *OriginalFarmId);
+                Settings->WorkStationConfiguration.Profile.DefaultFarm = OriginalFarmId;
+                Settings->SaveConfig();
+
+                FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Profile.DefaultFarm"));
+                FPropertyChangedEvent PropertyEvent(Property);
+				Settings->PostEditChangeProperty(PropertyEvent);
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Farm already at original value '%s', no restore needed"), *OriginalFarmId);
+            }
+
+            // Check if the queue value needs to be restored
+            if (Settings->WorkStationConfiguration.Farm.DefaultQueue != OriginalQueueId)
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Restoring queue from '%s' to '%s'"),
+                    *Settings->WorkStationConfiguration.Farm.DefaultQueue, *OriginalQueueId);
+                Settings->WorkStationConfiguration.Farm.DefaultQueue = OriginalQueueId;
+                Settings->SaveConfig();
+
+				FProperty* Property = ResolvePropertyByPath(Settings, TEXT("WorkStationConfiguration.Farm.DefaultQueue"));
+                FPropertyChangedEvent PropertyEvent(Property);
+				Settings->PostEditChangeProperty(PropertyEvent);
+            }
+            else
+            {
+                UE_LOG(LogCreateJobTest, Display, TEXT("Queue already at original value '%s', no restore needed"), *OriginalQueueId);
+            }
+        }
+    }
+
+private:
+    static FString OriginalFarmId;
+    static FString OriginalQueueId;
+};
+
+// Initialize static members
+FString FSettingsHelper::OriginalFarmId;
+FString FSettingsHelper::OriginalQueueId;
+
+// Latent command to restore settings after test completes
+class FRestoreSettingsLatentCommand : public IAutomationLatentCommand
+{
+public:
+    FRestoreSettingsLatentCommand() {}
+
+    virtual bool Update() override
+    {
+        UE_LOG(LogCreateJobTest, Display, TEXT("Restoring settings via latent command"));
+        FSettingsHelper::RestoreOriginalSettings();
+        return true;
+    }
+};
+
 ULevelSequence* FindFirstLevelSequence()
 {
     // Get the asset registry
@@ -155,13 +464,14 @@ ULevelSequence* FindFirstLevelSequence()
     return ShortestPathSequence;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieQueueCreateJobTest, "Deadline.Integration.CreateJob",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieQueueCreateJobTest, "DeadlineCloud.Integration.CreateJob",
     EAutomationTestFlags::EditorContext |
     EAutomationTestFlags::ProductFilter)
 
     bool FMovieQueueCreateJobTest::RunTest(const FString& Parameters)
 {
     UE_LOG(LogCreateJobTest, Display, TEXT("Starting remote render test"));
+    FSettingsHelper::ApplyTestSettings();
 
     // Get and configure project settings
     UMovieRenderPipelineProjectSettings* ProjectSettings = GetMutableDefault<UMovieRenderPipelineProjectSettings>();
@@ -239,7 +549,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieQueueCreateJobTest, "Deadline.Integration
     // Currently two "expected" warning/error messages which we should try to resolve separately, but don't currently break anything
     // in our underlying functionality
     // The QueueManifest message may appear 1 or 2 times depending on whether you've run the test before.
-    AddExpectedError(TEXT("Failed to load '/Engine/MovieRenderPipeline/Editor/QueueManifest': Can't find file"),
+    AddExpectedError(TEXT("/Engine/MovieRenderPipeline/Editor/QueueManifest"),
         EAutomationExpectedErrorFlags::Contains, 0);
     // The -execcmds message may appear 1 or 2 times depending on whether you've run the test before
     AddExpectedError(TEXT("Appearance of custom '-execcmds' argument on the Render node can cause unpredictable issues"),
@@ -263,6 +573,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieQueueCreateJobTest, "Deadline.Integration
 
     // Cleanup command to restore our queue to its original state
     ADD_LATENT_AUTOMATION_COMMAND(RestoreQueueCommand(QueueSubsystem, OriginalQueue));
+
+    // Add a final latent command to restore settings after all other commands complete
+    ADD_LATENT_AUTOMATION_COMMAND(FRestoreSettingsLatentCommand());
 
     UE_LOG(LogCreateJobTest, Display, TEXT("Test setup complete"));
     return true;

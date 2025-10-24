@@ -2,10 +2,13 @@ name: Code Quality
 
 on:
   pull_request:
-    branches: [ mainline, release ]
+    branches: [ mainline, release, 'patch_*' ]
   workflow_call:
     inputs:
       branch:
+        required: false
+        type: string
+      tag:
         required: false
         type: string
 
@@ -20,3 +23,4 @@ jobs:
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
+      ref: ${{inputs.tag}}

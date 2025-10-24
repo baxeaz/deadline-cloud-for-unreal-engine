@@ -12,7 +12,6 @@
 #include "MovieRenderPipelineCore/Public/MoviePipelineQueue.h"
 
 #include "Editor.h"
-#include "UnrealEd.h"
 #include "EditorSubsystem.h"
 #include "Subsystems/ImportSubsystem.h"
 #include "Subsystems/AssetEditorSubsystem.h" 

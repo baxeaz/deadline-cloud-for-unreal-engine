@@ -1,4 +1,6 @@
 specificationVersion: jobtemplate-2023-09
+extensions:
+  - REDACTED_ENV_VARS
 name: RenderJob
 parameterDefinitions:
 - name: ProjectRelativePath
@@ -21,3 +23,6 @@ parameterDefinitions:
 - name: Executable
   type: STRING
   default: 'UnrealEditor-Cmd'
+- name: ChunkSize
+  type: INT
+  default: 1
