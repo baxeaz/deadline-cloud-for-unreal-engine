@@ -22,6 +22,16 @@ If you’re setting up on a brand new Windows EC2 Instance as your submitter, a 
     - UE 5.5 has a known crash bug when running with the DirectX 11 plugin, see UI issue #UE-276282. If you need DirectX support on UE 5.5, use DirectX 12+.
 1. NVIDIA GRID drivers - Follow Windows instructions - https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#nvidia-GRID-driver
 
+## Submitter Installation
+
+If you're using an AI coding agent, you can automate the entire setup below by running the `ue-dev-setup` skill. Just ask: *"use ue-dev-setup skill to setup this computer"*. The agent will handle as much as it can and prompt you only when manual action is needed.
+
+If you prefer to set up manually, expand the section below.
+
+<details markdown="1">
+<summary><strong>Manual Setup Steps</strong></summary>
+
+
 ## Windows Long Paths
 
 Many of the steps below may attempt to create files which exceed the default Windows maximum path length. Before attempting to build and install the Deadline Cloud for Unreal Engine submitter or adapter on a Windows machine you are strongly encouraged to enable Windows Long path support by following the instructions in one of the options from [this page](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation?tabs=registry), such as by running the PowerShell command [here](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation?tabs=powershell#tabpanel_1_powershell). Additionally there's currently an [open issue on the worker agent](https://github.com/aws-deadline/deadline-cloud-worker-agent/issues/520) due to a dependency which doesn't ship properly configured to support Windows long paths. When setting up your workers you MUST follow the workaround steps described in the linked issue to fully support Windows long paths until the issue is resolved.
@@ -135,11 +145,11 @@ _4._ Lastly, Python dependencies can be installed by the submitter installer. NO
 1. Enable the Unreal Engine Plugin
 1. Make sure the Unreal Engine plugin install path matches where your plugin was copied to (In particular make sure your Unreal version matches)
 
-## Submitter Installation Complete
-
-If you don't need to set up a new fleet you can stop here, or skip down to the "Submit a Test Render" section.
+</details>
 
 # Create a Fleet
+
+If you already have a Windows fleet and don't need to set up a new fleet, you can stop here or skip down to the "Submit a Test Render" section.
 
 ## Create a Service Managed Fleet (SMF)
 
