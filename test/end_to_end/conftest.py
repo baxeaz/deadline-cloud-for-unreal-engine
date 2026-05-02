@@ -238,6 +238,18 @@ def pytest_addoption(parser) -> None:
         default=False,
         help="Don't cancel the job after it reaches READY state",
     )
+    parser.addoption(
+        "--conda-channel",
+        action="store",
+        default=None,
+        help="Override the CondaChannels default in the render job template",
+    )
+    parser.addoption(
+        "--conda-packages",
+        action="store",
+        default=None,
+        help="Override the CondaPackages default in the render job template",
+    )
 
 
 def get_source_root() -> str:
@@ -773,39 +785,65 @@ def build_plugin(request) -> None:
     Fixture to run the scripts/build_plugin.py script at most once per test session.
 
     Guarantees the latest version of the code has been built and installed.
-    Runs the script as a subprocess rather than importing and running the methods directly
-    to simulate how customers will execute it.
+    Also patches the render job template if --conda-channel or --conda-packages
+    are provided, to override the default conda channel and packages for rendering.
 
     Args:
         request: The pytest request object
     """
     if request.config.getoption("--nobuild"):
         logger.info("Skipping build_plugin")
-        return
+    else:
+        # build_plugin.py lives in the scripts subfolder relative to the root of the repository
+        script_path = os.path.join(get_source_root(), "scripts", "build_plugin.py")
+        if not os.path.exists(script_path):
+            pytest.fail(f"Could not find build_plugin.py at {script_path}")
 
-    # build_plugin.py lives in the scripts subfolder relative to the root of the repository
-    script_path = os.path.join(get_source_root(), "scripts", "build_plugin.py")
-    if not os.path.exists(script_path):
-        pytest.fail(f"Could not find build_plugin.py at {script_path}")
+        build_args = ["python", script_path]
+        build_args.extend(get_build_script_args())
 
-    build_args = ["python", script_path]
-    build_args.extend(get_build_script_args())
+        passthrough_args = ["--ueversion"]
 
-    passthrough_args = ["--ueversion"]
+        for arg in passthrough_args:
+            logger.debug(f"Checking arg {arg}")
+            if request.config.getoption(arg):
+                logger.debug(f"Found arg {arg}: {request.config.getoption(arg)}")
+                build_args.append(
+                    f"{arg}={request.config.getoption(arg)}" if arg.startswith("--") else arg
+                )
+            else:
+                logger.debug(f"Arg {arg} not present")
 
-    for arg in passthrough_args:
-        logger.debug(f"Checking arg {arg}")
-        if request.config.getoption(arg):
-            logger.debug(f"Found arg {arg}: {request.config.getoption(arg)}")
-            build_args.append(
-                f"{arg}={request.config.getoption(arg)}" if arg.startswith("--") else arg
-            )
-        else:
-            logger.debug(f"Arg {arg} not present")
+        # Run the script and capture the output
+        result = subprocess.run(build_args, text=True)
+        assert result.returncode == 0
 
-    # Run the script and capture the output
-    result = subprocess.run(build_args, text=True)
-    assert result.returncode == 0
+    # Patch render job template if --conda-channel or --conda-packages provided
+    conda_channel = request.config.getoption("--conda-channel")
+    conda_packages = request.config.getoption("--conda-packages")
+    if conda_channel or conda_packages:
+        engine_root = find_engine_root(request.config.getoption("--ueversion"))
+        template_path = os.path.join(
+            engine_root, "Engine", "Plugins", "UnrealDeadlineCloudService",
+            "Content", "Python", "openjd_templates", "render_job.yml"
+        )
+        if os.path.exists(template_path):
+            lines = open(template_path).read().split("\n")
+            for i, line in enumerate(lines):
+                if conda_channel and "name: CondaChannels" in line:
+                    for j in range(i + 1, min(i + 5, len(lines))):
+                        if "default:" in lines[j]:
+                            lines[j] = f"  default: {conda_channel}"
+                            break
+                if conda_packages and "name: CondaPackages" in line:
+                    for j in range(i + 1, min(i + 5, len(lines))):
+                        if "default:" in lines[j]:
+                            lines[j] = f"  default: {conda_packages}"
+                            break
+            with open(template_path, "w") as f:
+                f.write("\n".join(lines))
+            logger.info(f"Patched render job template: channel={conda_channel}, packages={conda_packages}")
+            logger.info(f"Patched render job template: channel={conda_channel}, packages={conda_packages}")
 
 
 @pytest.fixture(scope="session")
