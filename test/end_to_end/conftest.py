@@ -1458,7 +1458,6 @@ def create_queue_helper(
 
 @pytest.fixture(scope="session")
 def reusable_queue_id(
-    create_queue_helper,
     reusable_farm_id: str,
     request,
 ) -> str:
@@ -1468,7 +1467,6 @@ def reusable_queue_id(
     Uses --queue-id CLI option if provided, otherwise creates or reuses a test queue.
 
     Args:
-        create_queue_helper: Function to create or reuse a queue
         reusable_farm_id: The farm ID
         request: The pytest request object
 
@@ -1479,6 +1477,8 @@ def reusable_queue_id(
     if queue_id:
         logger.info(f"Using queue_id {queue_id} from --queue-id option")
         return queue_id
+    # Lazy-import the create_queue_helper fixture only when needed
+    create_queue_helper = request.getfixturevalue("create_queue_helper")
     queue = create_queue_helper(farm_id=reusable_farm_id)
     return queue["queueId"]
 
