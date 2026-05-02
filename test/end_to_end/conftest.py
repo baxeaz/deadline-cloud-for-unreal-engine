@@ -220,6 +220,24 @@ def pytest_addoption(parser) -> None:
         default=False,
         help="Clean up resources (queues, fleets, associations) after tests",
     )
+    parser.addoption(
+        "--farm-id",
+        action="store",
+        default=None,
+        help="Use a specific farm ID instead of reading from deadline config",
+    )
+    parser.addoption(
+        "--queue-id",
+        action="store",
+        default=None,
+        help="Use a specific queue ID instead of creating/reusing a test queue",
+    )
+    parser.addoption(
+        "--no-cancel",
+        action="store_true",
+        default=False,
+        help="Don't cancel the job after it reaches READY state",
+    )
 
 
 def get_source_root() -> str:
@@ -626,13 +644,14 @@ def extract_job_info_from_test_output(
 
 
 @pytest.fixture
-def run_unreal_test(request, reusable_queue_fleet_association) -> Callable:
+def run_unreal_test(request, reusable_farm_id, reusable_queue_id) -> Callable:
     """
     Fixture that provides a function to run Unreal Engine automation tests.
 
     Args:
         request: The pytest request object
-        reusable_queue_fleet_association: Fixture providing farm, queue, and fleet IDs
+        reusable_farm_id: The farm ID
+        reusable_queue_id: The queue ID
 
     Returns:
         A callable function that runs Unreal Engine automation tests
@@ -657,13 +676,13 @@ def run_unreal_test(request, reusable_queue_fleet_association) -> Callable:
         if deadlineargs is None:
             deadlineargs = "-NoLoadingScreen -FixedSeed -log -Unattended -MRQInstance -deterministicaudio -audiomixer"
 
-        reusable_farm_id, reusable_queue_id, reusable_fleet_id = reusable_queue_fleet_association
+        reusable_farm_id_val, reusable_queue_id_val = reusable_farm_id, reusable_queue_id
 
         logger.info(
-            f"Running unreal test with farm {reusable_farm_id} queue {reusable_queue_id} fleet {reusable_fleet_id}"
+            f"Running unreal test with farm {reusable_farm_id_val} queue {reusable_queue_id_val}"
         )
 
-        test_params_str = f"-testparams=farm_id={reusable_farm_id};queue_id={reusable_queue_id}"
+        test_params_str = f"-testparams=farm_id={reusable_farm_id_val};queue_id={reusable_queue_id_val}"
 
         engine_root = find_engine_root(request.config.getoption("--ueversion"))
 
@@ -1007,27 +1026,26 @@ DEADLINE_UNREAL_TEST_FARM_NAME: str = "deadline-unreal-test-farm"
 
 
 @pytest.fixture(scope="session")
-def reusable_farm_id() -> Generator[str, None, None]:
+def reusable_farm_id(request) -> Generator[str, None, None]:
     """
-    Fixture that provides a farm ID from your deadline config settings.
+    Fixture that provides a farm ID.
 
-    Args:
-        deadline_client: The Deadline Cloud client
-        request: The pytest request object
+    Uses --farm-id CLI option if provided, otherwise reads from deadline config.
 
     Yields:
         The farm ID to use for tests
     """
-    farm_id = None
-
-    config_farm_id = config.get_setting("defaults.farm_id")
-    if config_farm_id:
-        logger.info(f"Using farm_id {config_farm_id} from defaults.farm_id")
-        farm_id = config_farm_id
+    farm_id = request.config.getoption("--farm-id")
+    if farm_id:
+        logger.info(f"Using farm_id {farm_id} from --farm-id option")
     else:
-        raise Exception(
-            "Please configure the farm you wish to use for your test in your deadline config settings"
-        )
+        farm_id = config.get_setting("defaults.farm_id")
+        if farm_id:
+            logger.info(f"Using farm_id {farm_id} from defaults.farm_id")
+        else:
+            raise Exception(
+                "Please provide --farm-id or configure defaults.farm_id in deadline config"
+            )
 
     yield farm_id
 
@@ -1440,21 +1458,27 @@ def create_queue_helper(
 
 @pytest.fixture(scope="session")
 def reusable_queue_id(
-    create_queue_helper,
     reusable_farm_id: str,
     request,
 ) -> str:
     """
-    Fixture that provides a queue ID, creating one if it doesn't exist.
+    Fixture that provides a queue ID.
+
+    Uses --queue-id CLI option if provided, otherwise creates or reuses a test queue.
 
     Args:
-        create_queue_helper: Function to create or reuse a queue
         reusable_farm_id: The farm ID
         request: The pytest request object
 
     Returns:
         The queue ID
     """
+    queue_id = request.config.getoption("--queue-id")
+    if queue_id:
+        logger.info(f"Using queue_id {queue_id} from --queue-id option")
+        return queue_id
+    # Lazy-import the create_queue_helper fixture only when needed
+    create_queue_helper = request.getfixturevalue("create_queue_helper")
     queue = create_queue_helper(farm_id=reusable_farm_id)
     return queue["queueId"]
 
