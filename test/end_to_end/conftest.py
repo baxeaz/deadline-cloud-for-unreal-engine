@@ -232,6 +232,12 @@ def pytest_addoption(parser) -> None:
         default=None,
         help="Use a specific queue ID instead of creating/reusing a test queue",
     )
+    parser.addoption(
+        "--no-cancel",
+        action="store_true",
+        default=False,
+        help="Don't cancel the job after it reaches READY state",
+    )
 
 
 def get_source_root() -> str:
