@@ -77,6 +77,7 @@ class TestInstallWorkerDependencies:
 
 
 class TestBuildAndInstall:
+    @patch("scripts.build_plugin.install_worker_dependencies")
     @patch("scripts.build_plugin.install_whl_global")
     @patch("scripts.build_plugin.install_plugin")
     @patch("scripts.build_plugin.build_whl", return_value=FAKE_WHL_PATH)
@@ -84,7 +85,7 @@ class TestBuildAndInstall:
     @patch("scripts.build_plugin.find_runuat", return_value="/fake/runuat")
     @patch("scripts.build_plugin.check_configuration_warnings")
     @patch("scripts.build_plugin.find_engine_root", return_value=FAKE_ENGINE_ROOT)
-    def test_install_flag_also_updates_global_python(
+    def test_install_flag_does_not_touch_global_python(
         self,
         mock_find_engine,
         mock_check_warnings,
@@ -93,8 +94,35 @@ class TestBuildAndInstall:
         mock_build_whl,
         mock_install_plugin,
         mock_install_whl_global,
+        mock_install_worker_dependencies,
     ):
         build_and_install(install=True)
 
         mock_install_plugin.assert_called_once()
+        mock_install_whl_global.assert_not_called()
+        mock_install_worker_dependencies.assert_not_called()
+
+    @patch("scripts.build_plugin.install_worker_dependencies")
+    @patch("scripts.build_plugin.install_whl_global")
+    @patch("scripts.build_plugin.install_plugin")
+    @patch("scripts.build_plugin.build_whl", return_value=FAKE_WHL_PATH)
+    @patch("scripts.build_plugin.build_plugin")
+    @patch("scripts.build_plugin.find_runuat", return_value="/fake/runuat")
+    @patch("scripts.build_plugin.check_configuration_warnings")
+    @patch("scripts.build_plugin.find_engine_root", return_value=FAKE_ENGINE_ROOT)
+    def test_worker_flag_updates_global_python(
+        self,
+        mock_find_engine,
+        mock_check_warnings,
+        mock_find_runuat,
+        mock_build_plugin,
+        mock_build_whl,
+        mock_install_plugin,
+        mock_install_whl_global,
+        mock_install_worker_dependencies,
+    ):
+        build_and_install(install=True, worker=True)
+
+        mock_install_plugin.assert_called_once()
         mock_install_whl_global.assert_called_once_with(FAKE_WHL_PATH)
+        mock_install_worker_dependencies.assert_called_once_with(FAKE_ENGINE_ROOT)
