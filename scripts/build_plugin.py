@@ -526,9 +526,9 @@ def build_and_install(
 
     if install:
         install_plugin(engine_root, output_folder, whl_path, binaries)
-        install_whl_global(whl_path)
 
     if worker:
+        install_whl_global(whl_path)
         install_worker_dependencies(engine_root)
 
     if test:
@@ -568,7 +568,7 @@ def main():
     parser.add_argument(
         "--worker",
         action="store_true",
-        help="Install the plugin as a worker plugin to the global python interpreter.  Generally should be paired with --install.",
+        help="Install the plugin as a worker plugin to the global python interpreter, including the built .whl and worker dependencies.  Generally should be paired with --install.  Requires admin/elevated privileges on Windows; the submitter-only --install path does not.",
     )
     parser.add_argument(
         "--no-binaries",
