@@ -7,4 +7,3 @@ mypy == 1.*
 black == 25.*
 ruff == 0.14.*
 types-pyyaml == 6.*
-psutil >= 5.9.0
