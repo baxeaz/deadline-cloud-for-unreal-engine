@@ -94,9 +94,7 @@ def build_whl() -> str:
     # marker so `hatch build` runs in the default builder context.
     build_env = os.environ.copy()
     build_env.pop("HATCH_ENV_ACTIVE", None)
-    result = subprocess.run(
-        ["hatch", "build"], stderr=subprocess.PIPE, text=True, env=build_env
-    )
+    result = subprocess.run(["hatch", "build"], stderr=subprocess.PIPE, text=True, env=build_env)
     if result.returncode != 0:
         logger.error(f"hatch build failed with stderr:\n{result.stderr}")
         raise Exception(f"hatch build failed: {result.stderr}")
