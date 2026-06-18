@@ -89,7 +89,12 @@ def build_whl() -> str:
         )
         subprocess.run(["hatch", "--version"], check=True, stderr=subprocess.PIPE)
 
-    result = subprocess.run(["hatch", "build"], stderr=subprocess.PIPE, text=True)
+    # When invoked from inside a hatch-managed env (e.g. the integ-ci env in CI),
+    # hatch refuses to build because the active env isn't a builder env. Strip the
+    # marker so `hatch build` runs in the default builder context.
+    build_env = os.environ.copy()
+    build_env.pop("HATCH_ENV_ACTIVE", None)
+    result = subprocess.run(["hatch", "build"], stderr=subprocess.PIPE, text=True, env=build_env)
     if result.returncode != 0:
         logger.error(f"hatch build failed with stderr:\n{result.stderr}")
         raise Exception(f"hatch build failed: {result.stderr}")
