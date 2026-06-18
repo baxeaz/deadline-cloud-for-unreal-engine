@@ -7,13 +7,13 @@
 # Assumes you're running from the root of your plugin source directory
 
 import argparse
+import csv
 import logging
 import shutil
 import os
 import subprocess
 import sys
 import tempfile
-import psutil
 from typing import Tuple, Optional
 
 DEFAULT_UE_INSTALL_ROOT = "C:\\Program Files\\Epic Games"
@@ -431,16 +431,29 @@ def check_running_unreal_processes():
     Returns:
         bool: True if any Unreal processes are running, False otherwise
     """
+    if sys.platform != "win32":
+        return False
+
+    target_names = {"unrealeditor.exe", "unrealeditor-cmd.exe"}
     unreal_processes = []
-    for proc in psutil.process_iter(["pid", "name"]):
-        try:
-            if proc.info["name"] and (
-                proc.info["name"].lower() == "unrealeditor.exe"
-                or proc.info["name"].lower() == "unrealeditor-cmd.exe"
-            ):
-                unreal_processes.append(proc.info)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
+    try:
+        # tasklist /FO CSV /NH outputs: "Image Name","PID","Session Name","Session#","Mem Usage"
+        result = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as e:
+        logger.warning(f"Could not check for running Unreal processes: {e}")
+        return False
+
+    for row in csv.reader(result.stdout.splitlines()):
+        if len(row) < 2:
+            continue
+        name, pid = row[0], row[1]
+        if name.lower() in target_names:
+            unreal_processes.append({"name": name, "pid": pid})
 
     if unreal_processes:
         logger.warning(
