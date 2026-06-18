@@ -89,8 +89,11 @@ def build_whl() -> str:
         )
         subprocess.run(["hatch", "--version"], check=True, stderr=subprocess.PIPE)
 
-    result = subprocess.run(["hatch", "build"], check=True, stderr=subprocess.PIPE)
-    lines = result.stderr.decode("utf-8").splitlines()
+    result = subprocess.run(["hatch", "build"], stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        logger.error(f"hatch build failed with stderr:\n{result.stderr}")
+        raise Exception(f"hatch build failed: {result.stderr}")
+    lines = result.stderr.splitlines()
     whl_path = None
     # Go through lines, finding the first which ends in .whl
     for line in lines:
