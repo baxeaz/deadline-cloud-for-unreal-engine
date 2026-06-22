@@ -334,6 +334,25 @@ def build_plugin(runuat_path: str, plugin_input_folder: str, output_folder: str)
         raise Exception(f"Build failed {result.returncode}")
 
 
+def _warn_if_deadline_worker_service_running():
+    """Warn the user if the DeadlineWorker service is running and needs a restart."""
+    if sys.platform != "win32":
+        return
+    try:
+        result = subprocess.run(
+            ["sc", "query", "DeadlineWorker"],
+            capture_output=True,
+            text=True,
+        )
+        if "RUNNING" in result.stdout:
+            logger.warning(
+                "The DeadlineWorker service is currently running. "
+                "Restart it to pick up the new code: Restart-Service DeadlineWorker"
+            )
+    except Exception:
+        pass
+
+
 def install_worker_dependencies(engine_root: str):
     """
     Installs the dependencies required for the worker plugin to function
@@ -551,6 +570,7 @@ def build_and_install(
     if worker:
         install_whl_global(whl_path)
         install_worker_dependencies(engine_root)
+        _warn_if_deadline_worker_service_running()
 
     if test:
         install_test_content(get_plugin_folder(engine_root))
