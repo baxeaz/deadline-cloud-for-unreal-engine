@@ -181,6 +181,13 @@ By default a P4 render job only uploads outputs through Job Attachments. The `Su
 | `submit` | Each render task shelves the files it produced under its output directory. When every task has finished, an `AssembleShelves` step unshelves all task shelves into a single aggregate changelist and submits it. The final CL number is emitted as `openjd_status: Submitted CL <n>`. |
 | `shelve` | Same aggregation as `submit`, but the final aggregate CL is shelved instead of submitted. Useful when a human should review the aggregate before commit. The shelved CL is emitted as `openjd_env: SHELVED_CL=<n>`. |
 
+> **Note on downloading outputs.** When `SubmitMode` is set to `submit` or `shelve`, Job Attachments does **not** upload render outputs to S3 — Perforce becomes the sole delivery path for the frames. This means:
+>
+> - The Deadline Monitor "download outputs" feature will not find the frames.
+> - Downstream Deadline jobs that consume outputs via Job Attachments will not see them either; they must have a Perforce client and `p4 sync` the outputs themselves.
+>
+> Input attachments (project files, plugins, and other assets) are still uploaded via Job Attachments as normal; only render outputs move to Perforce.
+
 **How task shelves are aggregated.** Each render task tags its shelved CL description with a machine-readable marker line:
 
 ```
