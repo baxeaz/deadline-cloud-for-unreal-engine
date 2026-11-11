@@ -1,13 +1,17 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
+import io
 import json
 import sys
 from unittest.mock import Mock, patch, MagicMock
 import pytest
 
+from deadline.job_attachments.exceptions import AssetSyncCancelledError
+
 # Mock the deadline.client.api module before importing the wrapper
 sys.modules["deadline.client.api"] = MagicMock()
 
+from deadline.unreal_submitter import job_submit_wrapper  # noqa: E402
 from deadline.unreal_submitter.job_submit_wrapper import (  # noqa: E402
     hash_progress_callback,
     upload_progress_callback,
@@ -15,7 +19,22 @@ from deadline.unreal_submitter.job_submit_wrapper import (  # noqa: E402
     interactive_confirmation_callback,
     print_function_callback,
     main,
+    watch_for_cancel,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_cancel_request():
+    job_submit_wrapper._cancel_requested.clear()
+    yield
+    job_submit_wrapper._cancel_requested.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_stdin_watcher():
+    # main() starts a thread reading stdin; give it an empty stream in tests.
+    with patch("sys.stdin", io.StringIO("")):
+        yield
 
 
 class TestJobSubmitWrapper:
@@ -160,3 +179,26 @@ class TestJobSubmitWrapper:
             error_msg = json.loads(lines[-1])
             assert error_msg["type"] == "error"
             assert "Test error" in error_msg["message"]
+
+    def test_watch_for_cancel_ignores_other_lines(self):
+        watch_for_cancel(io.StringIO("hello\n"))
+
+        assert not job_submit_wrapper._cancel_requested.is_set()
+
+    @pytest.mark.parametrize("callback", [hash_progress_callback, upload_progress_callback])
+    def test_progress_callbacks_return_false_after_cancel(self, callback, capsys):
+        metadata = Mock(progress=10.0, progressMessage="Working")
+
+        watch_for_cancel(io.StringIO("cancel\n"))
+
+        assert callback(metadata) is False
+
+    @patch("deadline.unreal_submitter.job_submit_wrapper.create_job_from_job_bundle")
+    def test_main_reports_canceled(self, mock_create_job, capsys):
+        mock_create_job.side_effect = AssetSyncCancelledError("File upload cancelled.")
+
+        with patch("sys.argv", ["wrapper.py", "/path/to/bundle"]):
+            main()
+
+        lines = capsys.readouterr().out.strip().split("\n")
+        assert json.loads(lines[-1]) == {"type": "canceled"}

@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
+import subprocess
 import sys
 import time
 from unittest.mock import Mock, MagicMock, patch
@@ -10,6 +11,7 @@ from deadline.job_attachments.progress_tracker import ProgressReportMetadata, Pr
 unreal_mock = MagicMock()
 sys.modules["unreal"] = unreal_mock
 
+from deadline.unreal_submitter import submitter as submitter_module  # noqa: E402
 from deadline.unreal_submitter.submitter import UnrealSubmitter  # noqa: E402
 
 
@@ -114,6 +116,47 @@ class TestUnrealSubmitter:
 
         # THEN
         assert "Jobs submission canceled" in show_message_dialog_mock.mock_calls[0].args[0]
+
+    @patch("deadline.unreal_submitter.submitter.get_deadline_cloud_library_telemetry_client")
+    def test_cancel_in_dialog_tells_subprocess_to_stop(self, mock_telemetry_client: Mock):
+        submitter = UnrealSubmitter()
+        submitter._submit_process = MagicMock()
+        submitter.submit_status = submitter_module.UnrealSubmitStatus.HASHING
+        slow_task = unreal_mock.ScopedSlowTask.return_value.__enter__.return_value
+        slow_task.should_cancel.return_value = True
+
+        submitter._display_progress(submitter_module.UnrealSubmitStatus.HASHING, "Hashing")
+
+        assert submitter.continue_submission is False
+        submitter._submit_process.stdin.write.assert_called_once_with("cancel\n")
+        submitter._submit_process.stdin.flush.assert_called_once()
+
+    @patch("deadline.unreal_submitter.submitter.get_deadline_cloud_library_telemetry_client")
+    @patch("subprocess.Popen")
+    def test_cancel_before_subprocess_starts_is_sent(
+        self, popen_mock: Mock, mock_telemetry_client: Mock
+    ):
+        process_mock = MagicMock()
+        process_mock.stdout.readline.side_effect = ['{"type": "canceled"}\n', ""]
+        process_mock.returncode = 0
+        popen_mock.return_value = process_mock
+        submitter = UnrealSubmitter()
+        submitter.continue_submission = False
+
+        submitter._start_submit("/path/to/bundle", "/project/path")
+
+        assert popen_mock.call_args.kwargs["stdin"] == subprocess.PIPE
+        process_mock.stdin.write.assert_called_once_with("cancel\n")
+        assert submitter.submitted_job_ids == []
+        assert submitter.submission_failed_message == ""
+
+    @patch("deadline.unreal_submitter.submitter.get_deadline_cloud_library_telemetry_client")
+    def test_request_cancel_ignores_exited_subprocess(self, mock_telemetry_client: Mock):
+        submitter = UnrealSubmitter()
+        submitter._submit_process = MagicMock()
+        submitter._submit_process.stdin.write.side_effect = OSError("broken pipe")
+
+        submitter._request_cancel()
 
     @patch("deadline.unreal_submitter.submitter.UnrealSubmitter.show_message_dialog")
     @patch("deadline.unreal_submitter.submitter.get_deadline_cloud_library_telemetry_client")

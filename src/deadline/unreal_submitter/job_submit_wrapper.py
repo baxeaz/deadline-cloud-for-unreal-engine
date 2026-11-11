@@ -3,7 +3,23 @@
 
 import sys
 import json
+import threading
+
 from deadline.client.api import create_job_from_job_bundle
+from deadline.job_attachments.exceptions import AssetSyncCancelledError
+
+CANCEL_COMMAND = "cancel"
+
+# Set when the parent writes CANCEL_COMMAND to stdin. The library cancels hashing or
+# uploading, before CreateJob is called, when a progress callback returns False.
+_cancel_requested = threading.Event()
+
+
+def watch_for_cancel(stream=None):
+    for line in stream or sys.stdin:
+        if line.strip() == CANCEL_COMMAND:
+            _cancel_requested.set()
+            return
 
 
 def hash_progress_callback(hash_metadata):
@@ -17,8 +33,7 @@ def hash_progress_callback(hash_metadata):
         ),
         flush=True,
     )
-    # Always return True in subprocess - cancellation handled by parent
-    return True
+    return not _cancel_requested.is_set()
 
 
 def upload_progress_callback(upload_metadata):
@@ -32,8 +47,7 @@ def upload_progress_callback(upload_metadata):
         ),
         flush=True,
     )
-    # Always return True in subprocess - cancellation handled by parent
-    return True
+    return not _cancel_requested.is_set()
 
 
 def create_job_result_callback():
@@ -67,6 +81,8 @@ def main():
     job_bundle_path = sys.argv[1]
     known_asset_path = sys.argv[2] if len(sys.argv) == 3 else None
 
+    threading.Thread(target=watch_for_cancel, daemon=True).start()
+
     try:
         print(
             json.dumps(
@@ -96,6 +112,8 @@ def main():
             known_asset_paths=[known_asset_path] if known_asset_path else None,  # type: ignore[arg-type]
         )
         print(json.dumps({"type": "job_created", "job_id": job_id}), flush=True)
+    except AssetSyncCancelledError:
+        print(json.dumps({"type": "canceled"}), flush=True)
     except Exception as e:
         import traceback
 

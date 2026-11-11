@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from enum import Enum
-from typing import Callable
+from typing import Callable, Optional
 
 from deadline.client.api import (
     get_deadline_cloud_library_telemetry_client,
@@ -20,6 +20,7 @@ from deadline.unreal_submitter.unreal_open_job.unreal_open_job import (
     UnrealOpenJob,
     RenderUnrealOpenJob,
 )
+from deadline.unreal_submitter import job_submit_wrapper
 from deadline.unreal_submitter.exceptions import UserException
 
 from ._version import version
@@ -106,6 +107,7 @@ class UnrealSubmitter:
         self.continue_submission = True  # affect all not submitted jobs
         self.submitted_job_ids: list[str] = []  # use after submit loop is ended
         self._submission_failed_message = ""  # reset after each job in the loop
+        self._submit_process: Optional[subprocess.Popen] = None
 
     @property
     def submission_failed_message(self) -> str:
@@ -135,6 +137,7 @@ class UnrealSubmitter:
 
                 if submit_task.should_cancel():
                     self.continue_submission = False
+                    self._request_cancel()
                     break
 
                 if len(self.progress_list) > 0:
@@ -143,6 +146,18 @@ class UnrealSubmitter:
                     new_progress = last_progress
                 submit_task.enter_progress_frame(new_progress - last_progress, self.submit_message)
                 last_progress = new_progress
+
+    def _request_cancel(self):
+        """Ask the submit subprocess to stop hashing or uploading before it creates the job."""
+        process = self._submit_process
+        if process is None or process.stdin is None:
+            return
+        try:
+            process.stdin.write(job_submit_wrapper.CANCEL_COMMAND + "\n")
+            process.stdin.flush()
+        except (OSError, ValueError):
+            # The subprocess already exited.
+            pass
 
     def show_confirmation_dialog(self, message: str, default_prompt_response: bool):
         """
@@ -180,6 +195,8 @@ class UnrealSubmitter:
         elif data["type"] == "job_created":
             logger.info(f"Job creation result: {data['job_id']}")
             self.submitted_job_ids.append(data["job_id"])
+        elif data["type"] == "canceled":
+            logger.info("Job submission canceled before the job was created")
         elif data["type"] == "error":
             self._submission_failed_message = data["message"]
         elif data["type"] == "debug":
@@ -204,6 +221,7 @@ class UnrealSubmitter:
 
             process = subprocess.Popen(
                 [python_exe, wrapper_path, job_bundle_path, project_dir],
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -211,6 +229,10 @@ class UnrealSubmitter:
                 env=self._create_subprocess_env(),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            self._submit_process = process
+            # The user may have canceled before the subprocess started.
+            if not self.continue_submission:
+                self._request_cancel()
 
             for line in iter(process.stdout.readline, ""):  # type: ignore[union-attr]
                 try:
